@@ -13,15 +13,22 @@ export type Category = {
     | null;
 };
 
-export type Project = { title: string; description: string; categories: Category[] };
+export type Project = {
+  title: string;
+  description: string;
+  categories: Category[];
+  readme: string | null;
+};
 
 export type Doc = {
   id: string;
   category: string;
+  folder: string; // sub-folder path within the category ("" = root)
   title: string;
   order: number;
   created: string | null;
   updated: string | null;
+  mtime?: number;
   body: string;
 };
 
@@ -53,9 +60,17 @@ const enc = encodeURIComponent;
 
 // Subscribe to server-pushed .md change events (live refresh). Returns an
 // unsubscribe fn. EventSource reconnects automatically on drop.
-export function subscribeToChanges(onChange: () => void): () => void {
+export function subscribeToChanges(onChange: (paths: string[]) => void): () => void {
   const es = new EventSource("/api/events");
-  es.onmessage = () => onChange();
+  es.onmessage = (e) => {
+    let paths: string[] = [];
+    try {
+      paths = JSON.parse(e.data).paths ?? [];
+    } catch {
+      /* ignore */
+    }
+    onChange(paths);
+  };
   return () => es.close();
 }
 

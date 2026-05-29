@@ -52,76 +52,52 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   min-height: 70vh;
 }
 
-/* ---- PageSheet (iOS page-sheet stack) ---------------------------------- */
-.pagesheet { position: relative; }
-.pagesheet-back {
-  transform-origin: top center;
-  transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1), filter 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-}
-/* back layer shrinks + dims behind the front, becoming a dimmed return hotspot */
-.pagesheet-back[data-open] { transform: scale(0.94); filter: brightness(0.97); cursor: pointer; }
-.pagesheet-back[data-open] .sheet { pointer-events: none; }
-
-/* front slides up from the bottom; width aligned to the page (max 1080) */
-.pagesheet-front {
+/* live-update toast — eye-catching amber bar, top-right */
+.toast {
   position: fixed;
-  z-index: 30;
-  /* fixed → relative to the viewport top (≈120 aligns with the back card's header) */
-  top: 120px;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  margin-inline: auto;
-  width: min(100% - 48px, 1080px);
-  background: var(--sheet);
-  /* (kanban opens wide — see .is-wide below) */
-  border: 0.5px solid var(--line);
-  border-bottom: none;
-  border-radius: 12px 12px 0 0;
-  box-shadow: 0 8px 16px -4px rgba(28, 25, 23, 0.08), 0 16px 32px -8px rgba(28, 25, 23, 0.2);
-  overflow: hidden;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
   display: flex;
-  flex-direction: column;
-  animation: kn-page-sheet-up 0.4s cubic-bezier(0.32, 0.72, 0, 1) both;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 380px;
+  padding: 12px 15px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #f59e0b;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(120, 80, 0, 0.18);
+  cursor: pointer;
+  animation: kn-toast-in 0.25s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
-.pagesheet-front.is-wide { width: min(100% - 32px, 1600px); }
-@keyframes kn-page-sheet-up {
-  from { transform: translateY(20px); opacity: 0; }
+@keyframes kn-toast-in {
+  from { transform: translateY(-10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
-/* breadcrumb lives outside the card, centered in the old-card peek area */
-.pagesheet-crumbs {
-  position: fixed;
-  z-index: 31;
-  top: 88px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  pointer-events: none; /* empty space falls through to the back-layer dismiss */
+/* gentle fade-out instead of an abrupt removal */
+.toast.is-leaving { animation: kn-toast-out 0.45s ease forwards; }
+@keyframes kn-toast-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-8px); opacity: 0; }
 }
-.pagesheet-crumbs .crumbs { flex: none; min-width: 0; pointer-events: auto; }
-.pagesheet-crumbs .crumb-link { color: var(--accent); }
-.pagesheet-crumbs .crumb-link:hover { background: rgba(26, 115, 194, 0.1); color: var(--accent); }
+.toast-dot { width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; margin-top: 4px; flex-shrink: 0; }
+.toast-title { font-weight: 700; font-size: 13px; color: #92400e; }
+.toast-hint { font-weight: 600; color: #b45309; font-size: 11px; }
+.toast-close { border: none; background: transparent; color: #b45309; font-size: 18px; line-height: 1; padding: 0 2px; margin: -2px -4px 0 0; align-self: flex-start; flex-shrink: 0; cursor: pointer; }
+.toast-close:hover { background: transparent; color: #92400e; }
+.toast-files { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #78350f; font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-all; }
+.toast-more { color: #a16207; font-style: italic; }
 
-/* scroll container + sticky title bar */
-.sheet-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.sheet-titlebar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 64px;
-  padding: 14px 20px 22px;
-  /* opaque at the top, fading to transparent at the bottom — content scrolling
-     up under the title gradually fades out (no blur) */
-  background: linear-gradient(to bottom, #ffffff 0%, #ffffff 52%, rgba(255, 255, 255, 0) 100%);
-}
-.sheet-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
-.sheet-actions { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; }
-.sheet-content { padding: 10px 32px 40px; }
+/* kanban gets a wider sheet */
+.sheet.is-wide { max-width: 1560px; }
+
+/* secondary-page chrome: breadcrumb (left) + actions (right), at the top */
+.page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.page-head .crumbs { flex: 1; min-width: 0; }
+.page-head .crumb-link { color: var(--accent); }
+.page-head .crumb-link:hover { background: rgba(26, 115, 194, 0.1); color: var(--accent); }
+.page-actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 
 /* ---- home -------------------------------------------------------------- */
 .home-head { margin-bottom: 36px; }
@@ -191,6 +167,29 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 }
 .preview-empty { color: var(--ink-soft); font-size: 13px; padding-top: 6px; }
 
+/* docs/README.md on the home page — collapsed by default with an expand toggle */
+.home-readme { margin-top: 40px; padding-top: 26px; border-top: 1px solid var(--line); }
+.home-readme-body { position: relative; }
+.home-readme.is-collapsed .home-readme-body {
+  max-height: 19em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 65%, transparent 100%);
+}
+.home-readme-toggle {
+  margin-top: 10px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+}
+.home-readme-toggle:hover { background: transparent; text-decoration: underline; }
+
 .add-tools { margin-top: 32px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .add-tools-label { color: var(--ink-soft); font-size: 13px; margin-right: 4px; }
 .add-tool { border-style: dashed; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 6px; }
@@ -214,6 +213,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .section-foot .filehint { margin-left: auto; }
 
 /* docs list */
+.doc-group { margin-bottom: 22px; }
+.doc-group-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brick); margin: 0 2px 8px; display: flex; align-items: center; gap: 6px; }
+.doc-group-head::before { content: "📁"; font-size: 12px; }
 .doc-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .doc-row { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .doc-row:last-child { border-bottom: none; }
@@ -242,7 +244,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 
 /* rendered markdown (browse mode) */
 .doc-read { padding: 4px 2px 8px; }
-.prose { color: var(--ink); font-size: 15.5px; line-height: 1.72; max-width: 76ch; }
+.prose { color: var(--ink); font-size: 15.5px; line-height: 1.72; }
 .prose-empty { color: var(--ink-soft); }
 .prose > :first-child { margin-top: 0; }
 .prose h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin: 1.4em 0 0.5em; }
@@ -293,9 +295,49 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 /* ---- kanban columns ---------------------------------------------------- */
 .columns { display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
 /* columns are color-coded via --c / --cbg (shared palette), matching the home preview */
-.column { width: 270px; flex-shrink: 0; background: var(--cbg, #f3f2ec); border-radius: 12px; border-top: 3px solid var(--c, transparent); padding: 12px; transition: filter .12s; }
+/* active columns grow to fill the width (no empty space when others collapse) */
+.column { flex: 1 1 240px; min-width: 240px; background: var(--cbg, #f3f2ec); border-radius: 12px; border-top: 3px solid var(--c, transparent); padding: 12px; transition: filter .12s; }
 .column.is-over { filter: brightness(0.97); }
 .column-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 10px; }
+.column-head.is-clickable { cursor: pointer; border-radius: 6px; }
+.column-head.is-clickable:hover { background: rgba(255, 255, 255, 0.5); }
+
+/* collapsed terminal column (Completed / Cancelled): vertical, count-only entry */
+.column-collapsed {
+  width: 52px;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 240px;
+  border: none;
+  border-top: 3px solid var(--c);
+  background: var(--cbg);
+  border-radius: 12px;
+  padding: 10px 4px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.column-collapsed:hover { filter: brightness(0.97); }
+.column-collapsed-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 20px;
+  padding: 1px 8px;
+}
+.column-collapsed-name {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
 .column-name { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }
 .column-count { font-size: 12px; color: var(--ink-soft); background: rgba(255, 255, 255, 0.7); border-radius: 20px; padding: 1px 8px; }
 .column-body { display: flex; flex-direction: column; gap: 9px; min-height: 8px; }

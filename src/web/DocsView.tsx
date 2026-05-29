@@ -3,21 +3,41 @@ import { Home } from "lucide-react";
 import { api, type Category, type Doc } from "./api";
 import { Markdown } from "./Markdown";
 import { MarkdownEditor } from "./MarkdownEditor";
-import { useSheetChrome } from "./PageSheet";
+import { Breadcrumb } from "./Breadcrumb";
 import { Icon } from "./icons";
 
 type Props = {
   category: Category;
-  projectTitle: string;
+  docId: string | null; // from the URL — null = list view
   onHome: () => void;
-  onChange: () => void; // refresh project home summary
+  onOpenDoc: (id: string) => void; // navigates (changes URL)
+  onBackToList: () => void;
+  onChange: () => void;
   refreshTick?: number;
 };
 
-export function DocsView({ category, projectTitle, onHome, onChange, refreshTick }: Props) {
+// Group docs by sub-folder, preserving the server's order (most-recently
+// modified first) — so groups appear by their newest doc, and rows within a
+// group stay newest-first.
+function groupByFolder(docs: Doc[]): [string, Doc[]][] {
+  const map = new Map<string, Doc[]>();
+  for (const d of docs) {
+    const f = d.folder || "";
+    (map.get(f) ?? map.set(f, []).get(f)!).push(d);
+  }
+  return [...map.entries()];
+}
+
+const homeCrumb = (onHome: () => void) => ({
+  label: "",
+  icon: <Home size={15} aria-hidden />,
+  title: "首页",
+  onClick: onHome,
+});
+
+export function DocsView({ category, docId, onHome, onOpenDoc, onBackToList, onChange, refreshTick }: Props) {
   const dir = category.dir;
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setDocs(await api.listDocs(dir));
@@ -26,86 +46,63 @@ export function DocsView({ category, projectTitle, onHome, onChange, refreshTick
 
   useEffect(() => {
     load();
-  }, [load, refreshTick]); // refetch on mount and on disk change
+  }, [load, refreshTick]);
 
   const create = async () => {
     const title = prompt("文档标题");
     if (!title) return;
     const doc = await api.createDoc(dir, { title });
     await load();
-    setOpenId(doc.id);
+    onOpenDoc(doc.id); // navigate to the new doc
   };
 
-  if (openId) {
+  if (docId) {
     return (
       <DocPage
         dir={dir}
-        id={openId}
+        id={docId}
         category={category}
         onHome={onHome}
-        onBackToList={() => setOpenId(null)}
-        onChanged={() => load()}
+        onBackToList={onBackToList}
+        onChanged={load}
         refreshTick={refreshTick}
       />
     );
   }
 
   return (
-    <DocList
-      category={category}
-      docs={docs}
-      onHome={onHome}
-      onOpen={setOpenId}
-      onCreate={create}
-    />
-  );
-}
+    <div className="section">
+      <div className="page-head">
+        <Breadcrumb
+          items={[homeCrumb(onHome), { label: category.name, icon: <Icon name={category.icon} size={14} /> }]}
+        />
+        <div className="page-actions">
+          <button className="btn-primary" onClick={create}>
+            + 新建文档
+          </button>
+        </div>
+      </div>
 
-function homeCrumb(onHome: () => void, title: string) {
-  return { label: "", icon: <Home size={15} aria-hidden />, title, onClick: onHome };
-}
-
-// ── docs list ──────────────────────────────────────────────────────────
-function DocList({
-  category,
-  docs,
-  onHome,
-  onOpen,
-  onCreate,
-}: {
-  category: Category;
-  docs: Doc[];
-  onHome: () => void;
-  onOpen: (id: string) => void;
-  onCreate: () => void;
-}) {
-  useSheetChrome(
-    {
-      crumbs: [homeCrumb(onHome, "首页")],
-      title: category.name,
-      actions: (
-        <button className="btn-primary" onClick={onCreate}>
-          + 新建文档
-        </button>
-      ),
-    },
-    [category.dir, docs.length]
-  );
-
-  if (docs.length === 0) {
-    return <div className="empty">还没有文档。点「新建文档」开始。</div>;
-  }
-  return (
-    <ul className="doc-list">
-      {docs.map((d) => (
-        <li key={d.id} className="doc-row" onClick={() => onOpen(d.id)}>
-          <span className="doc-title">{d.title}</span>
-          <span className="doc-meta">
-            {d.updated ? new Date(d.updated).toLocaleDateString() : ""}
-          </span>
-        </li>
-      ))}
-    </ul>
+      {docs.length === 0 ? (
+        <div className="empty">还没有文档。点「新建文档」开始。</div>
+      ) : (
+        groupByFolder(docs).map(([folder, items]) => (
+          <div className="doc-group" key={folder || "/"}>
+            {folder && <div className="doc-group-head">{folder.replace(/\//g, " / ")}</div>}
+            <ul className="doc-list">
+              {items.map((d) => (
+                <li key={d.id} className="doc-row" onClick={() => onOpenDoc(d.id)}>
+                  <span className="doc-title">{d.title}</span>
+                  <span className="doc-meta">
+                    {d.updated ? new Date(d.updated).toLocaleDateString() : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
@@ -181,52 +178,54 @@ function DocPage({
     onBackToList();
   };
 
-  const crumbs = [homeCrumb(onHome, "首页"), { label: category.name, icon: <Icon name={category.icon} size={14} />, onClick: onBackToList }];
-
-  useSheetChrome(
-    {
-      crumbs,
-      title: `${id}.md`,
-      actions: editing ? (
-        <>
-          <button onClick={cancelEdit}>取消</button>
-          <button className="btn-primary" onClick={save} disabled={saving}>
-            {saving ? "保存中…" : "保存"}
-          </button>
-        </>
-      ) : (
-        <button className="edit-btn" onClick={() => setEditing(true)}>
-          编辑
-        </button>
-      ),
-    },
-    [id, category.dir, editing, saving]
-  );
-
-  if (!doc) return <div className="empty">加载中…</div>;
-
-  if (!editing) {
-    return (
-      <article className="doc-read">
-        <Markdown>{doc.body}</Markdown>
-      </article>
-    );
-  }
-
   return (
-    <>
-      <input
-        className="editor-title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="标题"
-      />
-      <MarkdownEditor value={body} onChange={setBody} placeholder="在此撰写 Markdown…" />
-      <div className="section-foot">
-        <button className="btn-danger" onClick={del}>
-          删除
-        </button>
+    <div className="section">
+      <div className="page-head">
+        <Breadcrumb
+          items={[
+            homeCrumb(onHome),
+            { label: category.name, icon: <Icon name={category.icon} size={14} />, onClick: onBackToList },
+            { label: `${id}.md` },
+          ]}
+        />
+        <div className="page-actions">
+          {editing ? (
+            <>
+              <button onClick={cancelEdit}>取消</button>
+              <button className="btn-primary" onClick={save} disabled={saving}>
+                {saving ? "保存中…" : "保存"}
+              </button>
+            </>
+          ) : (
+            <button className="edit-btn" onClick={() => setEditing(true)}>
+              编辑
+            </button>
+          )}
+        </div>
       </div>
-    </>
+
+      {!doc ? (
+        <div className="empty">加载中…</div>
+      ) : !editing ? (
+        <article className="doc-read">
+          <Markdown>{doc.body}</Markdown>
+        </article>
+      ) : (
+        <>
+          <input
+            className="editor-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="标题"
+          />
+          <MarkdownEditor value={body} onChange={setBody} placeholder="在此撰写 Markdown…" />
+          <div className="section-foot">
+            <button className="btn-danger" onClick={del}>
+              删除
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

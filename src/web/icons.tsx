@@ -6,6 +6,11 @@ import {
   LayoutGrid,
   FileText,
   Folder,
+  Scale,
+  Users,
+  BookOpen,
+  Archive,
+  Package,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,6 +25,11 @@ const REGISTRY: Record<string, LucideIcon> = {
   LayoutGrid,
   FileText,
   Folder,
+  Scale,
+  Users,
+  BookOpen,
+  Archive,
+  Package,
 };
 
 export function Icon({ name, size = 16, className }: { name?: string; size?: number; className?: string }) {

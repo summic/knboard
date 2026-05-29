@@ -14,7 +14,6 @@ const PRIORITIES = ["", "low", "med", "high"];
 export function CardEditor({ card, columns, onClose, onSaved }: Props) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(card.title);
-  const [status, setStatus] = useState(card.status);
   const [priority, setPriority] = useState(card.priority || "");
   const [tags, setTags] = useState(card.tags.join(", "));
   const [body, setBody] = useState(card.body);
@@ -22,12 +21,13 @@ export function CardEditor({ card, columns, onClose, onSaved }: Props) {
 
   const statusName = columns.find((c) => c.id === card.status)?.name || card.status;
 
+  // Edits content only — a card's column (status) is changed by moving its
+  // file (git mv), never from here.
   const save = async () => {
     setSaving(true);
     try {
       await api.updateCard(card.category, card.id, {
         title,
-        status,
         priority: priority || null,
         tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
         body,
@@ -69,7 +69,7 @@ export function CardEditor({ card, columns, onClose, onSaved }: Props) {
             <div className="editor-footer">
               <div className="spacer" />
               <code className="filehint">
-                {card.category}/{card.id}/card.md
+                {card.category}/{card.id}
               </code>
               <button onClick={onClose}>关闭</button>
             </div>
@@ -84,16 +84,6 @@ export function CardEditor({ card, columns, onClose, onSaved }: Props) {
               placeholder="标题"
             />
             <div className="editor-meta">
-              <label>
-                状态
-                <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                  {columns.map((c) => (
-                    <option value={c.id} key={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label>
                 优先级
                 <select value={priority} onChange={(e) => setPriority(e.target.value)}>

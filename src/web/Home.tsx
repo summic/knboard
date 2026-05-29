@@ -1,8 +1,9 @@
-import type { CSSProperties } from "react";
-import { FileText, Plus } from "lucide-react";
+import { useState, type CSSProperties } from "react";
+import { FileText, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { api, type Project, type Category } from "./api";
 import { Icon } from "./icons";
 import { colColor } from "./columnColors";
+import { Markdown } from "./Markdown";
 
 type Props = {
   project: Project;
@@ -26,7 +27,7 @@ function CategoryCard({ cat, onOpen }: { cat: Category; onOpen: (dir: string) =>
         {cat.type === "kanban" && cat.summary && "columns" in cat.summary ? (
           <div className="preview-board">
             {cat.summary.columns.map((col, i) => {
-              const cc = colColor(i);
+              const cc = colColor(col.id, i);
               return (
                 <div
                   className="mini-col"
@@ -90,6 +91,25 @@ export function Home({ project, onOpen, onChange }: Props) {
           ))}
         </div>
       )}
+
+      {project.readme && <Readme md={project.readme} />}
     </div>
+  );
+}
+
+// docs/README.md rendered on the home page — collapsed to ~a dozen lines with
+// an expand toggle.
+function Readme({ md }: { md: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className={`home-readme ${open ? "is-open" : "is-collapsed"}`}>
+      <div className="home-readme-body">
+        <Markdown>{md}</Markdown>
+      </div>
+      <button className="home-readme-toggle" onClick={() => setOpen((o) => !o)}>
+        {open ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
+        {open ? "收起" : "展开全部"}
+      </button>
+    </section>
   );
 }
