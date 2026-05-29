@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# local content dirs (a consumer's docs live in their own project, not here)
+docs/
+demo/
+knboard/
+
+# editor / tooling
+.claude/
+*.log
+.DS_Store

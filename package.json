@@ -1,0 +1,50 @@
+{
+  "name": "knboard",
+  "version": "0.1.0",
+  "description": "A local, disk-based Markdown docs & kanban browser for projects. Basecamp-flavored — run it in any project to read/edit your docs.",
+  "keywords": ["markdown", "docs", "kanban", "documentation", "basecamp", "cli"],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "knboard": "bin/knboard.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/summic/knboard.git"
+  },
+  "files": [
+    "bin",
+    "src/server",
+    "dist/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "KNBOARD_DEV=1 node bin/knboard.js serve --port 6789",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "node bin/knboard.js serve",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@hello-pangea/dnd": "^16.6.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "lucide-react": "^1.17.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
