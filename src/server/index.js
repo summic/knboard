@@ -65,6 +65,24 @@ export function createApi(content) {
   return api;
 }
 
+// Listen on `startPort`, falling back to the next free port if it's taken,
+// so a busy port never crashes the CLI with an unhandled EADDRINUSE.
+function listen(app, startPort, maxTries = 20) {
+  const tryPort = (p, triesLeft) =>
+    new Promise((resolve, reject) => {
+      const server = app.listen(p);
+      server.once("listening", () => resolve(p));
+      server.once("error", (err) => {
+        if (err.code === "EADDRINUSE" && triesLeft > 0) {
+          resolve(tryPort(p + 1, triesLeft - 1));
+        } else {
+          reject(err);
+        }
+      });
+    });
+  return tryPort(startPort, maxTries);
+}
+
 export async function startServer({ dir, port = 6789, open = false } = {}) {
   const root = path.resolve(dir);
 
@@ -113,8 +131,11 @@ export async function startServer({ dir, port = 6789, open = false } = {}) {
     }
   }
 
-  await new Promise((resolve) => app.listen(port, resolve));
-  const url = `http://localhost:${port}`;
+  const actualPort = await listen(app, port);
+  if (actualPort !== port) {
+    console.log(`\n  ⚠  port ${port} is in use — using ${actualPort} instead`);
+  }
+  const url = `http://localhost:${actualPort}`;
   console.log(`\n  🗂️  knboard is serving ${root}`);
   console.log(`      ${dev ? "API on" : "open"} ${url}\n`);
 
