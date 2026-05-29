@@ -1,9 +1,29 @@
 # 🗂️ knboard
 
-A **local, disk-based Markdown docs & kanban browser** for your projects — Basecamp-flavored.
-Run it inside any project and it serves a friendly web UI over a `docs/` folder: requirements,
-architecture, design docs, and a project-management kanban — all stored as plain `.md` files on
-disk, so everything diffs cleanly in git. No database, no cloud.
+**A shared workspace for you and your AI agents.**
+
+knboard is a tool for **human–agent collaboration**. Instead of treating an agent as a
+one-off question-and-answer box, it gives your agent **structured, contextual** information
+so it can work the way a real *project* does — not just turn by turn.
+
+The idea is to bring **project management to your agents**. Markdown happens to be wonderfully
+AI-friendly, so knboard keeps everything as plain `.md` files on disk and gives you a clean UI
+to **watch the agent edit your docs in real time** and steer it as it works.
+
+Together with your AI, knboard helps you:
+
+1. **Organize your thinking**
+2. **Shape requirements**
+3. **Manage projects, requirements, and progress** — sensibly
+
+### How people use it
+
+1. Install **[Tailscale](https://tailscale.com/)** on both your computer and your phone.
+2. With both connected, drive your agent from **Codex** or **Claude** on your phone.
+3. Open knboard in your **phone's browser** to watch the docs update live and follow how the
+   project is moving.
+
+No database, no cloud — your docs live in your repo and diff cleanly in git.
 
 ## Install
 
