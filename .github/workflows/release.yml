@@ -98,10 +98,15 @@ jobs:
             "${IMAGE}"
 
           for attempt in $(seq 1 30); do
-            if docker exec "${IMAGE_NAME}" wget -qO- http://127.0.0.1:6789/ >/dev/null; then
+            set +e
+            docker exec "${IMAGE_NAME}" wget -qO- http://127.0.0.1:6789/ >/dev/null
+            status="$?"
+            set -e
+            if [ "${status}" = "0" ]; then
               break
             fi
             if [ "${attempt}" = "30" ]; then
+              docker ps -a --filter "name=^/${IMAGE_NAME}$" >&2
               docker logs --tail 100 "${IMAGE_NAME}" >&2
               exit 1
             fi
