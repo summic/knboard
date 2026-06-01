@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "kylith-sso": {
+      "source": "git@git.kuainiujinke.com:devops/skills.git",
+      "sourceType": "git",
+      "skillPath": "kylith-sso/SKILL.md",
+      "computedHash": "5ddf98a462c6140d646d7e532ea378d34752fc7d9561f4c530f950466d72e99c"
+    }
+  }
+}

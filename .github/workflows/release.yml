@@ -1,0 +1,114 @@
+name: Build and Deploy Release
+
+on:
+  push:
+    branches:
+      - release
+  workflow_dispatch:
+
+concurrency:
+  group: knbox-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy to kylith-prod
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      IMAGE_NAME: knbox
+      REMOTE_APP_DIR: /home/ubuntu/knbox
+      REMOTE_DOCKER_NETWORK: kylith-production_default
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Type check
+        run: npm run check
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Build Docker image
+        run: |
+          set -euo pipefail
+          docker build \
+            --platform linux/amd64 \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag "${IMAGE_NAME}:${GITHUB_SHA}" \
+            .
+          docker save "${IMAGE_NAME}:${GITHUB_SHA}" | gzip > "${IMAGE_NAME}-${GITHUB_SHA}.tar.gz"
+
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.KYLITH_PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.KYLITH_PROD_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Upload image archive
+        run: |
+          set -euo pipefail
+          scp "${IMAGE_NAME}-${GITHUB_SHA}.tar.gz" \
+            "${{ secrets.KYLITH_PROD_USER }}@${{ secrets.KYLITH_PROD_HOST }}:/tmp/${IMAGE_NAME}-${GITHUB_SHA}.tar.gz"
+
+      - name: Deploy container
+        run: |
+          set -euo pipefail
+          ssh "${{ secrets.KYLITH_PROD_USER }}@${{ secrets.KYLITH_PROD_HOST }}" \
+            "IMAGE_NAME='${IMAGE_NAME}' IMAGE_TAG='${GITHUB_SHA}' APP_DIR='${REMOTE_APP_DIR}' DOCKER_NETWORK='${REMOTE_DOCKER_NETWORK}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
+          ARCHIVE="/tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar.gz"
+
+          mkdir -p "${APP_DIR}/data"
+          test -f "${APP_DIR}/.env"
+          docker network inspect "${DOCKER_NETWORK}" >/dev/null
+
+          gzip -dc "${ARCHIVE}" | docker load
+          rm -f "${ARCHIVE}"
+
+          docker rm -f "${IMAGE_NAME}" >/dev/null 2>&1 || true
+          docker run -d \
+            --name "${IMAGE_NAME}" \
+            --restart unless-stopped \
+            --network "${DOCKER_NETWORK}" \
+            --env-file "${APP_DIR}/.env" \
+            -e KNBOX_DATA_DIR=/data \
+            -e KNBOX_PUBLIC_URL=https://box.beforeve.com \
+            -e KNBOX_FILES_PUBLIC_URL=https://b.beforeve.com \
+            -e PORT=6789 \
+            -v "${APP_DIR}/data:/data" \
+            "${IMAGE}"
+
+          for attempt in $(seq 1 30); do
+            if docker exec "${IMAGE_NAME}" wget -qO- http://127.0.0.1:6789/ >/dev/null; then
+              break
+            fi
+            if [ "${attempt}" = "30" ]; then
+              docker logs --tail 100 "${IMAGE_NAME}" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          docker exec "${IMAGE_NAME}" node -e "fetch('http://127.0.0.1:6789/api/auth/config',{headers:{host:'b.beforeve.com'}}).then((res)=>{if(res.status!==404) process.exit(1);})"
+
+          docker image prune -f >/dev/null || true
+          REMOTE

@@ -1,10 +1,14 @@
 node_modules/
 dist/
+.env
+.env.*
+!.env.example
 
-# local content dirs (a consumer's docs live in their own project, not here)
+# local content dirs
 docs/
 demo/
-knboard/
+knbox/
+data/
 
 # editor / tooling
 .claude/
