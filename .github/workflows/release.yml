@@ -68,18 +68,26 @@ jobs:
             "${{ secrets.KYLITH_PROD_USER }}@${{ secrets.KYLITH_PROD_HOST }}:/tmp/${IMAGE_NAME}-${GITHUB_SHA}.tar.gz"
 
       - name: Deploy container
+        env:
+          KNBOX_KYLITH_ISSUER: ${{ secrets.KNBOX_KYLITH_ISSUER }}
+          KNBOX_KYLITH_CREDENTIALS_B64: ${{ secrets.KNBOX_KYLITH_CREDENTIALS_B64 }}
         run: |
           set -euo pipefail
           ssh "${{ secrets.KYLITH_PROD_USER }}@${{ secrets.KYLITH_PROD_HOST }}" \
-            "IMAGE_NAME='${IMAGE_NAME}' IMAGE_TAG='${GITHUB_SHA}' APP_DIR='${REMOTE_APP_DIR}' DOCKER_NETWORK='${REMOTE_DOCKER_NETWORK}' bash -s" <<'REMOTE'
+            "IMAGE_NAME='${IMAGE_NAME}' IMAGE_TAG='${GITHUB_SHA}' APP_DIR='${REMOTE_APP_DIR}' DOCKER_NETWORK='${REMOTE_DOCKER_NETWORK}' KNBOX_KYLITH_ISSUER='${KNBOX_KYLITH_ISSUER}' KNBOX_KYLITH_CREDENTIALS_B64='${KNBOX_KYLITH_CREDENTIALS_B64}' bash -s" <<'REMOTE'
           set -euo pipefail
 
           IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
           ARCHIVE="/tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar.gz"
+          KYLITH_CREDENTIALS_FILE="${APP_DIR}/kylith-credentials.json"
 
           mkdir -p "${APP_DIR}/data"
           test -f "${APP_DIR}/.env"
           docker network inspect "${DOCKER_NETWORK}" >/dev/null
+          test -n "${KNBOX_KYLITH_ISSUER}"
+          test -n "${KNBOX_KYLITH_CREDENTIALS_B64}"
+          printf '%s' "${KNBOX_KYLITH_CREDENTIALS_B64}" | base64 -d > "${KYLITH_CREDENTIALS_FILE}"
+          chmod 600 "${KYLITH_CREDENTIALS_FILE}"
 
           gzip -dc "${ARCHIVE}" | docker load
           rm -f "${ARCHIVE}"
@@ -93,8 +101,11 @@ jobs:
             -e KNBOX_DATA_DIR=/data \
             -e KNBOX_PUBLIC_URL=https://box.beforeve.com \
             -e KNBOX_FILES_PUBLIC_URL=https://b.beforeve.com \
+            -e KNBOX_KYLITH_ISSUER="${KNBOX_KYLITH_ISSUER}" \
+            -e KNBOX_KYLITH_CREDENTIALS_FILE=/run/secrets/kylith-credentials.json \
             -e PORT=6789 \
             -v "${APP_DIR}/data:/data" \
+            -v "${KYLITH_CREDENTIALS_FILE}:/run/secrets/kylith-credentials.json:ro" \
             "${IMAGE}"
 
           healthy=0
@@ -115,6 +126,26 @@ jobs:
             docker logs --tail 100 "${IMAGE_NAME}" >&2
             exit 1
           fi
+
+          docker exec -i "${IMAGE_NAME}" node - <<'NODE'
+          const http = require("node:http");
+          http.get("http://127.0.0.1:6789/api/auth/config", (res) => {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (chunk) => { body += chunk; });
+            res.on("end", () => {
+              try {
+                const parsed = JSON.parse(body);
+                process.exit(parsed?.kylithSso?.enabled === true ? 0 : 1);
+              } catch {
+                process.exit(1);
+              }
+            });
+          }).on("error", (error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
 
           docker exec -i "${IMAGE_NAME}" node - <<'NODE'
           const http = require("node:http");
