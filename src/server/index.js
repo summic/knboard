@@ -329,6 +329,13 @@ export async function startServer({ port = 6789, open = false } = {}) {
     res.sendFile(file);
   }));
 
+  app.use((req, res, next) => {
+    if (filesPublicHost && requestHost(req) === filesPublicHost) {
+      return res.status(404).type("text").send("Not found");
+    }
+    return next();
+  });
+
   const dev = process.env.KNBOX_DEV === "1";
   if (!dev) {
     if (await fs.stat(WEB_DIST).catch(() => null)) {
