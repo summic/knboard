@@ -165,23 +165,12 @@ jobs:
           req.end();
           NODE
 
-          if ! command -v certbot >/dev/null 2>&1; then
-            sudo -n apt-get update
-            sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx
-          fi
-          certbot --version
-          sudo -n certbot --nginx \
-            --non-interactive \
-            --agree-tos \
-            --redirect \
-            --expand \
-            -d box.beforeve.com \
-            -d b.beforeve.com
-          sudo -n nginx -t
-          sudo -n systemctl reload nginx
-
+          box_auth="$(curl -sS https://box.beforeve.com/api/auth/config)"
+          printf '%s' "${box_auth}" | grep -q '"enabled":true'
           b_status="$(curl -sS -o /tmp/knbox-b-domain-check -w '%{http_code}' https://b.beforeve.com/api/auth/config)"
           test "${b_status}" = "404"
+          b_missing_status="$(curl -sS -o /tmp/knbox-b-missing-check -w '%{http_code}' https://b.beforeve.com/u/missing-release-check)"
+          test "${b_missing_status}" = "404"
 
           docker image prune -f >/dev/null || true
           REMOTE
