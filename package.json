@@ -1,46 +1,58 @@
 {
-  "name": "knboard",
+  "name": "knbox",
   "version": "0.1.0",
-  "description": "A local, disk-based Markdown docs & kanban browser for projects. Basecamp-flavored — run it in any project to read/edit your docs.",
-  "keywords": ["markdown", "docs", "kanban", "documentation", "basecamp", "cli"],
+  "description": "A self-hosted web service for uploading and browsing small static webpages.",
+  "keywords": [
+    "markdown",
+    "files",
+    "static-site",
+    "web-hosting",
+    "upload",
+    "self-hosted"
+  ],
   "license": "MIT",
   "type": "module",
   "bin": {
-    "knboard": "bin/knboard.js"
+    "knbox": "bin/knbox.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/summic/knboard.git"
+    "url": "git+https://github.com/summic/knbox.git"
   },
   "files": [
     "bin",
+    "src/cli",
     "src/server",
     "dist/web"
   ],
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
-    "dev:server": "KNBOARD_DEV=1 node bin/knboard.js serve --port 6789",
+    "dev:server": "KNBOX_DEV=1 node bin/knbox.js serve --port 6789",
     "dev:web": "vite",
+    "check": "tsc --noEmit",
     "build": "vite build",
-    "start": "node bin/knboard.js serve",
+    "start": "node bin/knbox.js serve",
+    "tokens:sync": "node scripts/sync-tokens.mjs",
     "prepare": "npm run build"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.10.0",
     "express": "^4.19.2",
-    "gray-matter": "^4.0.3"
+    "jose": "^5.10.0",
+    "multer": "^2.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@hello-pangea/dnd": "^16.6.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
     "lucide-react": "^1.17.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.0"
   },
