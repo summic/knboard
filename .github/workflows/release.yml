@@ -97,21 +97,24 @@ jobs:
             -v "${APP_DIR}/data:/data" \
             "${IMAGE}"
 
+          healthy=0
+          set +e
           for attempt in $(seq 1 30); do
-            set +e
             docker exec "${IMAGE_NAME}" wget -qO- http://127.0.0.1:6789/ >/dev/null
             status="$?"
-            set -e
             if [ "${status}" = "0" ]; then
+              healthy=1
               break
-            fi
-            if [ "${attempt}" = "30" ]; then
-              docker ps -a --filter "name=^/${IMAGE_NAME}$" >&2
-              docker logs --tail 100 "${IMAGE_NAME}" >&2
-              exit 1
             fi
             sleep 2
           done
+          set -e
+
+          if [ "${healthy}" != "1" ]; then
+            docker ps -a --filter "name=^/${IMAGE_NAME}$" >&2
+            docker logs --tail 100 "${IMAGE_NAME}" >&2
+            exit 1
+          fi
 
           docker exec "${IMAGE_NAME}" node -e "fetch('http://127.0.0.1:6789/api/auth/config',{headers:{host:'b.beforeve.com'}}).then((res)=>{if(res.status!==404) process.exit(1);})"
 
