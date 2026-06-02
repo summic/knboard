@@ -96,7 +96,13 @@ export function createAuth({ dataDir }) {
           return publicUser(findUserById(db, existing.id));
         }
 
-        const nextUsername = uniqueUsername(db, username || email || `${normalizedProvider}-${normalizedSubject}`);
+        const nextUsername = slugUsername(username || email || `${normalizedProvider}-${normalizedSubject}`);
+        const conflictingUser = findUserByStorageName(db, nextUsername);
+        if (conflictingUser) {
+          const error = new Error(`Username "${nextUsername}" already exists.`);
+          error.status = 409;
+          throw error;
+        }
         const result = db
           .prepare(
             `INSERT INTO users (username, password_hash, role, provider, provider_subject, email, display_name, title, avatar_url)
@@ -252,6 +258,13 @@ function findUserById(db, id) {
   return db.prepare("SELECT * FROM users WHERE id = ?").get(id);
 }
 
+function findUserByStorageName(db, storageName) {
+  return db
+    .prepare("SELECT * FROM users")
+    .all()
+    .find((user) => userStorageName(user) === storageName);
+}
+
 function publicUser(user) {
   return {
     id: user.id,
@@ -276,34 +289,24 @@ function publicCliToken(row) {
 }
 
 function userStorageName(user) {
-  const id = Number(user?.id);
-  if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid user id.");
-  return `user-${id}`;
+  return safeStorageName(user?.username);
 }
 
 function safeStorageName(value) {
-  const storageName = String(value || "").trim().toLowerCase();
-  if (!/^user-[1-9][0-9]*$/.test(storageName)) throw new Error("Invalid user storage name.");
+  const storageName = slugUsername(value, { fallback: false });
+  if (!storageName) throw new Error("Invalid user storage name.");
   return storageName;
 }
 
-function uniqueUsername(db, seed) {
-  const base = slugUsername(seed);
-  let candidate = base;
-  let n = 1;
-  while (findUserByUsername(db, candidate)) candidate = `${base}-${++n}`;
-  return candidate;
-}
-
-function slugUsername(value) {
+function slugUsername(value, { fallback = true } = {}) {
   const raw = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/@.+$/, "")
     .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/^[._-]+|[._-]+$/g, "")
     .slice(0, 48);
-  return raw || `user-${crypto.randomBytes(4).toString("hex")}`;
+  return raw || (fallback ? `user-${crypto.randomBytes(4).toString("hex")}` : "");
 }
 
 function clean(value) {
