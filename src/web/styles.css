@@ -436,6 +436,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .help-notice { margin: 0 0 30px; padding: 18px 20px; border: 1px solid var(--kn-color-border-subtle); border-radius: 10px; background: var(--kn-color-bg-workspace); }
 .help-notice h2 { margin-top: 0; font-size: 22px; }
 .help-notice p { color: var(--kn-color-text-tertiary); font-size: 15px; }
+.help-copy { margin: 14px 0 18px; overflow: hidden; border: 1px solid var(--kn-color-border-default); border-radius: 8px; background: #fff; }
+.help-copy-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--kn-color-border-subtle); }
+.help-copy-head strong { color: var(--kb-ink-black); font-size: var(--kn-text-body-sm); font-weight: 700; }
+.help-copy-head button { flex-shrink: 0; height: 30px; padding: 0 11px; border: 1px solid var(--kn-color-border-default); border-radius: var(--kn-radius-control); background: var(--kn-color-bg-surface); color: var(--ink); font-size: var(--kn-text-body-sm); font-weight: 650; }
+.help-copy-head button:hover { background: var(--kn-color-bg-hover); }
+.help-copy pre { margin: 0; border: none; border-radius: 0; background: var(--kn-color-bg-workspace); }
 .cli-token-panel { margin: 0 0 30px; padding: 18px 20px; border: 1px solid var(--kn-color-border-subtle); border-radius: 10px; background: var(--kn-color-bg-workspace); }
 .cli-token-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .cli-token-head h2 { margin-top: 0; font-size: 22px; }
@@ -647,6 +653,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .help-doc { padding: 26px 22px 38px; }
   .help-doc h1 { font-size: 30px; }
   .help-doc h2 { font-size: 22px; }
+  .help-copy-head { align-items: flex-start; flex-direction: column; }
   .cli-token-head, .cli-token-issued, .cli-token-row { align-items: stretch; flex-direction: column; }
   .fm-empty-links { grid-template-columns: 1fr; }
   .fm-shell.has-preview { grid-template-columns: 1fr; }

@@ -9,6 +9,29 @@ const HELP_DOCS: { id: HelpDocId; label: string; title: string; kicker: string }
   { id: "skills", label: "Skills", title: "给 AI 助手使用 KN Box", kicker: "AI 助手" },
 ];
 
+const CLI_AGENT_BRIEF = `请帮我配置 KN Box CLI，并按这个顺序操作：
+1. 先安装 CLI：npm install -g github:summic/knbox-cli
+2. 打开 KN Box 的“KnBox CLI”页面，让我点击“签发 Token”。
+3. 我把 Token 复制给你后，请把它配置给客户端：
+   export KNBOX_URL=https://box.beforeve.com
+   export KNBOX_TOKEN=<我复制给你的 Token>
+4. 验证登录：knbox auth whoami --json
+5. 以后我说“把 README.md 上传到 TeamBox”，请用 knbox upload ./README.md --json 上传，并把返回链接发给我。`;
+
+const CLI_TOKEN_ENV = `export KNBOX_URL=https://box.beforeve.com
+export KNBOX_TOKEN=<粘贴刚签发的 Token>
+knbox auth whoami --json`;
+
+const CLI_AGENT_EXAMPLES = `把 README.md 上传到 TeamBox，并把链接发给我。
+把 dist 目录上传到 TeamBox 的 /demo 目录，并返回入口链接。`;
+
+const SKILLS_AGENT_BRIEF = `请帮我安装 KN Box Skill：
+1. 确认 KN Box CLI 已安装；如果我自己在电脑上使用，先运行 knbox auth login 完成网页登录。
+2. 如果是 Agent 登录或后台脚本使用，请让我在 KN Box 的“KnBox CLI”页面签发 Token，并把 KNBOX_TOKEN 配到客户端。
+3. 安装 Skill：npx skills add summic/knbox-skills
+4. 验证：knbox commands --json
+5. 安装完以后，我说“把 README.md 上传到 TeamBox”，你就用 KN Box CLI 上传，并把链接发给我。`;
+
 export function Help({ doc = "usage" }: { doc?: HelpDocId }) {
   const current = HELP_DOCS.find((item) => item.id === doc) ?? HELP_DOCS[0];
 
@@ -39,6 +62,46 @@ export function Help({ doc = "usage" }: { doc?: HelpDocId }) {
       {doc === "cli" && <CliDoc />}
       {doc === "skills" && <SkillsDoc />}
     </article>
+  );
+}
+
+function CopySnippet({ title, text }: { title: string; text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    let didCopy = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        didCopy = true;
+      }
+    } catch {
+      didCopy = false;
+    }
+    if (!didCopy) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      didCopy = document.execCommand("copy");
+      textarea.remove();
+    }
+    if (!didCopy) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="help-copy">
+      <div className="help-copy-head">
+        <strong>{title}</strong>
+        <button type="button" onClick={copy}>{copied ? "已复制" : "复制"}</button>
+      </div>
+      <pre><code>{text}</code></pre>
+    </div>
   );
 }
 
@@ -97,7 +160,7 @@ function UsageDoc() {
 
       <section>
         <h2>预览和分享</h2>
-        <p>点击文件可以选中，打开预览后可以复制链接，也可以在新窗口打开。</p>
+        <p>点击文件会打开预览。需要选择删除时，请勾选文件或文件夹右上角的选择框。</p>
         <p>Markdown 会用 KN Box 的阅读页面渲染。网页文件会直接输出，图片会直接显示。</p>
       </section>
 
@@ -128,30 +191,50 @@ event-page/`}</code></pre>
 function CliDoc() {
   return (
     <>
-      <CliTokenPanel />
-
-      <section>
-          <h2>登录</h2>
-          <p>
-            第一次使用 CLI 时先登录。默认连接 <code>box.beforeve.com</code>。命令会打开浏览器，
-            完成登录后，CLI 会在本机保存凭证。
+      <section className="help-notice">
+        <h2>太长不看</h2>
+        <p>
+          把下面这段贴给你的 AI Agent，例如 Codex、Claude.md、OpenCode。它会替你按顺序完成安装、
+          让你签发 Token，并把 Token 配给客户端。
         </p>
-        <pre><code>{`knbox auth login
-knbox auth whoami`}</code></pre>
-        <p>如果不能打开浏览器登录，也可以在本页签发 Token，然后设置 <code>KNBOX_TOKEN</code>。</p>
+        <CopySnippet title="复制给 AI Agent" text={CLI_AGENT_BRIEF} />
       </section>
 
       <section>
-          <h2>单独安装 CLI</h2>
-          <p>
+        <h2>1. 安装 CLI</h2>
+        <p>
           如果你只需要命令行工具，可以单独安装 CLI，不需要安装完整的 KN Box 服务端。
         </p>
         <pre><code>{`npm install -g github:summic/knbox-cli
-knbox auth login`}</code></pre>
+knbox --help`}</code></pre>
       </section>
 
       <section>
-        <h2>浏览文件</h2>
+        <h2>2. 登录方式：网页登录或 Agent Token</h2>
+        <p>
+          如果是你自己在电脑上使用，运行 <code>knbox auth login</code>。它会打开网页登录，
+          完成后 CLI 会在本机保存凭证。
+        </p>
+        <pre><code>{`knbox auth login
+knbox auth whoami --json`}</code></pre>
+        <p>
+          如果是 Agent 登录、脚本或无法打开浏览器的环境，才需要在下一步签发 Token，
+          然后把 <code>KNBOX_TOKEN</code> 给客户端使用。
+        </p>
+      </section>
+
+      <CliTokenPanel />
+
+      <section>
+        <h2>4. 把 Token 给客户端</h2>
+        <p>
+          Token 只会显示一次。复制后，把下面两行交给 AI Agent 或写到运行脚本的环境变量里。
+        </p>
+        <CopySnippet title="复制客户端配置" text={CLI_TOKEN_ENV} />
+      </section>
+
+      <section>
+        <h2>5. 浏览文件</h2>
         <p>
           <code>ls</code> 用于列出目录，<code>cd</code> 会记住远程目录，之后的上传和打开命令会以这个目录为默认位置。
         </p>
@@ -161,7 +244,7 @@ knbox ls`}</code></pre>
       </section>
 
       <section>
-        <h2>打开文件或目录</h2>
+        <h2>6. 打开文件或目录</h2>
         <p>
           打开文件时，CLI 会输出最终可访问的预览地址。打开目录时，CLI 会列出目录内容。
         </p>
@@ -170,7 +253,7 @@ knbox open /team-guide --json`}</code></pre>
       </section>
 
       <section>
-        <h2>上传文件</h2>
+        <h2>7. 上传文件</h2>
         <p>
           上传文件或目录后，CLI 会返回每个文件的地址。如果目录里有 <code>index.html</code> 或 <code>index.htm</code>，
           还会返回目录入口地址。
@@ -183,7 +266,7 @@ knbox upload ./note.md --rename --json`}</code></pre>
       </section>
 
       <section>
-        <h2>给自动化工具使用</h2>
+        <h2>8. 给 AI Agent 使用</h2>
         <p>
           如果你把 CLI 交给自动化工具使用，建议加上 <code>--json</code>。这样工具可以稳定读取上传结果和链接。
         </p>
@@ -193,6 +276,7 @@ knbox open /demo/site/index.html --json`}</code></pre>
         <p>
           如果只需要原始数据，可以使用 <code>--json --quiet</code>。
         </p>
+        <CopySnippet title="可以直接这样对 Agent 说" text={CLI_AGENT_EXAMPLES} />
       </section>
     </>
   );
@@ -250,10 +334,11 @@ function CliTokenPanel() {
     <section className="cli-token-panel">
       <div className="cli-token-head">
         <div>
-          <h2>签发 CLI Token</h2>
+          <h2>3. 签发 Token</h2>
           <p>
-            Token 可以让 CLI 在不打开浏览器的情况下访问你的 KN Box。每个账号只能保留一个 CLI Token；
-            签发新的 Token 会让旧 Token 立即失效。Token 明文只会在签发后显示一次。
+            Token 是给 AI Agent、脚本或无法打开浏览器的环境使用的。你自己在电脑上使用时，
+            优先用上面的 <code>knbox auth login</code> 网页登录。每个账号只能保留一个 CLI Token；
+            重新签发会让旧 Token 立即失效。
           </p>
         </div>
         <button className="btn-primary" onClick={issue} disabled={busy}>
@@ -298,6 +383,12 @@ function CliTokenPanel() {
 function SkillsDoc() {
   return (
     <>
+      <section className="help-notice">
+        <h2>太长不看</h2>
+        <p>把下面这段交给 AI Agent 就可以了。</p>
+        <CopySnippet title="复制给 AI Agent" text={SKILLS_AGENT_BRIEF} />
+      </section>
+
       <section>
         <h2>什么是 Skills</h2>
         <p>
@@ -310,37 +401,27 @@ function SkillsDoc() {
       </section>
 
       <section>
-        <h2>安装前准备</h2>
-        <p>先确认本机已经可以使用 KN Box CLI：</p>
-        <pre><code>{`knbox auth whoami --json`}</code></pre>
-        <p>
-          如果还没有登录，可以运行 <code>knbox auth login</code>。如果是在无法打开浏览器的环境里，
-          可以在 KN Box 的 CLI 页面签发 Token，并设置 <code>KNBOX_TOKEN</code>。
-          服务地址默认已经是 <code>https://box.beforeve.com</code>，通常不需要设置 <code>KNBOX_URL</code>。
-        </p>
+        <h2>1. 先安装 CLI</h2>
+        <p>如果还没有安装命令行工具，先从 GitHub 安装：</p>
+        <pre><code>{`npm install -g github:summic/knbox-cli
+knbox --help`}</code></pre>
       </section>
 
       <section>
-        <h2>安装 CLI</h2>
-        <p>如果还没有安装命令行工具，可以从 GitHub 安装：</p>
-        <pre><code>{`npm install -g github:summic/knbox-cli`}</code></pre>
-        <p>安装后验证：</p>
-        <pre><code>{`knbox --help
-knbox commands --json`}</code></pre>
-      </section>
-
-      <section>
-        <h2>使用 Token</h2>
+        <h2>2. 登录方式：网页登录或 Agent Token</h2>
         <p>
-          如果你希望 AI 助手在后台使用 KN Box，可以在 CLI 页面签发一个 Token。
-          每次重新签发都会覆盖旧 Token。默认服务地址已经写好，只需要配置 Token。
+          你自己在电脑上使用时，运行 <code>knbox auth login</code> 完成网页登录：
         </p>
-        <pre><code>{`export KNBOX_TOKEN=knbox_xxx
+        <pre><code>{`knbox auth login
 knbox auth whoami --json`}</code></pre>
+        <p>
+          如果是 Agent 登录或无法打开浏览器的环境，让 Agent 打开“KnBox CLI”页面，引导你签发 Token，
+          然后把 <code>KNBOX_TOKEN</code> 配给客户端。
+        </p>
       </section>
 
       <section>
-        <h2>安装 Skill</h2>
+        <h2>3. 安装 Skill</h2>
         <p>
           用 skills installer 安装 KN Box Skill：
         </p>
@@ -354,7 +435,15 @@ npx skills add summic/knbox-skills -a claude-code`}</code></pre>
       </section>
 
       <section>
-        <h2>验证上传</h2>
+        <h2>4. 安装后怎么用</h2>
+        <p>
+          安装完成后，你只要把任务交给 AI Agent，例如：
+        </p>
+        <CopySnippet title="复制这句话试用" text="把 README.md 上传到 TeamBox，并把链接发给我。" />
+      </section>
+
+      <section>
+        <h2>5. 验证上传</h2>
         <p>
           安装完成后，可以用一个小目录试一下上传流程：
         </p>
