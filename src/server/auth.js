@@ -11,7 +11,7 @@ const LEGACY_DEV_SESSION_SECRET = "dev-session-secret-change-me";
 export function createAuth({ dataDir }) {
   const root = path.resolve(dataDir);
   const dbPath = path.join(root, "knbox.sqlite");
-  return fs.mkdir(root, { recursive: true }).then(() => {
+  return fs.mkdir(root, { recursive: true }).then(async () => {
     const db = new Database(dbPath);
     db.pragma("journal_mode = WAL");
     db.exec(`
@@ -203,6 +203,8 @@ export function createAuth({ dataDir }) {
       },
     };
 
+    await migrateLegacyUserStorageDirs({ db, root });
+
     return auth;
   });
 }
@@ -307,6 +309,47 @@ function slugUsername(value, { fallback = true } = {}) {
     .replace(/^[._-]+|[._-]+$/g, "")
     .slice(0, 48);
   return raw || (fallback ? `user-${crypto.randomBytes(4).toString("hex")}` : "");
+}
+
+async function migrateLegacyUserStorageDirs({ db, root }) {
+  const usersRoot = path.join(root, "users");
+  const users = db.prepare("SELECT id, username FROM users ORDER BY id").all();
+  for (const user of users) {
+    const id = Number(user.id);
+    if (!Number.isInteger(id) || id <= 0) continue;
+
+    const legacyDir = path.join(usersRoot, `user-${id}`);
+    const targetDir = path.join(usersRoot, userStorageName(user));
+    if (legacyDir === targetDir) continue;
+
+    const legacyStat = await fs.stat(legacyDir).catch(() => null);
+    if (!legacyStat?.isDirectory()) continue;
+
+    const targetStat = await fs.stat(targetDir).catch(() => null);
+    if (!targetStat) {
+      await fs.mkdir(usersRoot, { recursive: true });
+      await fs.rename(legacyDir, targetDir);
+      continue;
+    }
+
+    if (!targetStat.isDirectory()) continue;
+    await mergeDirectoryWithoutOverwrite(legacyDir, targetDir);
+  }
+}
+
+async function mergeDirectoryWithoutOverwrite(sourceDir, targetDir) {
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const source = path.join(sourceDir, entry.name);
+    const target = path.join(targetDir, entry.name);
+    const targetExists = await fs.stat(target).catch(() => null);
+    if (targetExists) continue;
+
+    await fs.rename(source, target);
+  }
+
+  const remaining = await fs.readdir(sourceDir).catch(() => []);
+  if (!remaining.length) await fs.rm(sourceDir, { recursive: true, force: true });
 }
 
 function clean(value) {
