@@ -165,7 +165,13 @@ CLI 本地状态默认保存在：
 ~/.config/knbox/config.json
 ```
 
-Agent 或脚本中可以使用网页端签发的 Token：
+Agent 或脚本默认可以通过浏览器 OAuth 登录：
+
+```bash
+knbox auth login
+```
+
+无法打开浏览器登录时，可以使用用户在网页端签发的 Token：
 
 ```bash
 export KNBOX_TOKEN='...'
@@ -177,7 +183,7 @@ export KNBOX_TOKEN='...'
 export KNBOX_URL='https://your-knbox.example.com'
 ```
 
-所有面向 Agent 的命令都支持 `--json`，便于脚本读取结构化结果。
+所有面向 Agent 的命令都支持 `--json`，便于脚本读取结构化结果。CLI Token 由用户在网页端签发；Agent 不应自行创建 Token。
 
 CLI 上传目录时会跳过符号链接、隐藏文件和隐藏目录；只会上传支持的 Markdown、网页和图片文件，并在本地限制目录深度、文件数量、单文件大小和单批总大小。
 

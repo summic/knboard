@@ -423,15 +423,7 @@ function EmptyGuide() {
       <div className="fm-empty-links">
         <a href="/~help">
           <strong>使用说明</strong>
-          <span>上传、预览、分享和回收站的操作入口。</span>
-        </a>
-        <a href="/~cli">
-          <strong>命令行工具</strong>
-          <span>用 knbox 命令上传文件并返回分享链接。</span>
-        </a>
-        <a href="/~skills">
-          <strong>Agent 集成</strong>
-          <span>让 AI 助手通过 KN Box 上传文件并生成链接。</span>
+          <span>上传、预览、CLI、Token 和 AI 助手使用方式。</span>
         </a>
       </div>
     </div>

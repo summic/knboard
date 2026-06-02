@@ -331,7 +331,7 @@ async function getRuntimeConfig(args, { requireToken = true } = {}) {
   const config = await readConfig();
   const serverUrl = cleanServerUrl(args.server || process.env.KNBOX_URL || config.serverUrl || DEFAULT_SERVER_URL);
   const token = process.env.KNBOX_TOKEN || config.token;
-  if (requireToken && !token) throw new CliError("Not logged in. Run `knbox login` or set KNBOX_TOKEN.");
+  if (requireToken && !token) throw new CliError("Not logged in. Run `knbox auth login` or set KNBOX_TOKEN.");
   return { ...config, serverUrl, token, cwd: normalizeRemotePath(config.cwd || "") };
 }
 
@@ -593,6 +593,7 @@ function agentHelp() {
     data: {
       name: "knbox",
       purpose: "Upload and browse files in KN Box from terminals and AI agents.",
+      auth: "Use browser OAuth login by default. Use KNBOX_TOKEN only when browser login is unavailable; tokens must be issued by the user.",
       config: {
         env: ["KNBOX_URL", "KNBOX_TOKEN"],
         localConfig: CONFIG_FILE,
@@ -643,7 +644,7 @@ function commandCatalog() {
     {
       name: "knbox open [path]",
       summary: "For files, print the public URL. For directories, list contents.",
-      args: ["path", "--browser", "--json", "--quiet"],
+      args: ["path", "--json", "--quiet"],
     },
     {
       name: "knbox upload <file-or-dir>",
