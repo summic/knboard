@@ -45,13 +45,20 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 
 /* ---- auth -------------------------------------------------------------- */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--page); }
-.login-card { width: min(420px, 100%); background: var(--sheet); border-radius: 16px; box-shadow: var(--shadow); padding: 32px; }
-.login-brand { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-serif); font-weight: 600; font-size: 20px; color: var(--kb-ink-black); margin-bottom: 24px; }
+.login-card { width: min(460px, 100%); background: var(--sheet); border-radius: 16px; box-shadow: var(--shadow); padding: 32px; }
+.login-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--kb-ink-black); margin-bottom: 14px; }
 .login-brand .brand-mark { color: var(--kb-ink-black); }
 .login-card h1 { margin: 0; font-family: var(--font-serif); font-size: 30px; font-weight: 600; letter-spacing: 0; }
-.login-card p { margin: 8px 0 20px; color: var(--ink-soft); }
+.login-card p { margin: 0; color: var(--ink-soft); }
+.login-intro { font-size: 14px; line-height: 1.75; }
+.login-mode { margin-top: 20px; }
+.login-mode h2 { margin: 0 0 8px; color: var(--kb-ink-black); font-size: 15px; font-weight: 700; letter-spacing: 0; }
+.login-mode p { color: var(--kn-color-text-secondary); font-size: 13px; line-height: 1.65; }
+.agent-prompt { display: grid; grid-template-columns: 1fr 34px; align-items: stretch; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid color-mix(in oklab, var(--accent) 20%, var(--kn-color-border-subtle)); border-radius: 8px; background: color-mix(in oklab, var(--accent) 7%, var(--kn-color-bg-workspace)); }
+.agent-prompt pre { min-width: 0; margin: 0; white-space: pre-wrap; color: var(--kb-ink-black); font-family: var(--kn-font-mono); font-size: 12px; line-height: 1.65; }
+.agent-prompt button { width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; align-self: center; padding: 0; border-radius: 8px; color: var(--accent); background: #fff; }
 .login-error { margin: 14px 0; padding: 10px 12px; border-radius: 8px; background: #fde7e4; color: #b3261e; font-size: 13px; }
-.sso-button { width: 100%; height: 46px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; letter-spacing: 0.5px; color: #fff; background: var(--accent); border: 1px solid var(--accent); border-radius: 24px; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.08); padding: 0 24px; margin: 4px 0 0; overflow: hidden; transition: background .2s cubic-bezier(.2,0,0,1), border-color .2s cubic-bezier(.2,0,0,1), box-shadow .2s cubic-bezier(.2,0,0,1), transform .2s cubic-bezier(.2,0,0,1); }
+.sso-button { width: 100%; height: 46px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; letter-spacing: 0.5px; color: #fff; background: var(--accent); border: 1px solid var(--accent); border-radius: 24px; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.08); padding: 0 24px; margin: 12px 0 0; overflow: hidden; transition: background .2s cubic-bezier(.2,0,0,1), border-color .2s cubic-bezier(.2,0,0,1), box-shadow .2s cubic-bezier(.2,0,0,1), transform .2s cubic-bezier(.2,0,0,1); }
 .sso-button:hover { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 2px 8px rgba(60, 64, 67, 0.15); transform: translateY(-1px); }
 .sso-button:active { background: var(--accent-hover); box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1); transform: translateY(0); }
 .sso-button:focus-visible { outline: none; border-color: #4285f4; box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.15); }
@@ -431,6 +438,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   padding: 14px 16px;
 }
 .help-doc pre code { color: var(--kb-ink-black); font-size: 13px; line-height: 1.65; }
+.help-doc .help-copy-block { overflow-x: visible; }
+.help-doc .help-copy-block code { white-space: pre-wrap; word-break: break-word; }
 .help-doc ul, .help-doc ol { margin: 10px 0 0; padding-left: 22px; color: var(--kn-color-text-secondary); font-size: 16px; line-height: 1.8; }
 .help-doc li + li { margin-top: 3px; }
 .help-notice { margin: 0 0 30px; padding: 18px 20px; border: 1px solid var(--kn-color-border-subtle); border-radius: 10px; background: var(--kn-color-bg-workspace); }

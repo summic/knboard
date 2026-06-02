@@ -15,6 +15,8 @@ import {
   File as FileIcon,
   Folder as FolderIcon,
   RotateCcw,
+  Copy,
+  Check,
 } from "lucide-react";
 import { api, AuthRequiredError, type AuthConfig, type FileEntry, type FileSection, type StorageUsage, type TrashEntry, type User } from "./api";
 import { Home } from "./Home";
@@ -22,8 +24,7 @@ import { Help } from "./Help";
 import { useUploads, UploadManager } from "./UploadManager";
 
 type AppView = "files" | "trash" | "help";
-type HelpDoc = "usage" | "cli" | "skills";
-type Route = { view: AppView; section: FileSection; dir: string; helpDoc?: HelpDoc };
+type Route = { view: AppView; section: FileSection; dir: string };
 
 const SECTIONS: Record<string, FileSection> = {
   "~web": "web",
@@ -36,9 +37,7 @@ function parsePath(pathname: string): Route {
   if (!raw) return { view: "files", section: "all", dir: "" };
   const parts = raw.split("/").filter(Boolean);
   if (parts[0] === "~trash") return { view: "trash", section: "all", dir: "" };
-  if (parts[0] === "~help") return { view: "help", section: "all", dir: "", helpDoc: "usage" };
-  if (parts[0] === "~cli") return { view: "help", section: "all", dir: "", helpDoc: "cli" };
-  if (parts[0] === "~skills") return { view: "help", section: "all", dir: "", helpDoc: "skills" };
+  if (parts[0] === "~help" || parts[0] === "~cli" || parts[0] === "~skills") return { view: "help", section: "all", dir: "" };
   const section = SECTIONS[parts[0]] ?? "all";
   const dirParts = section === "all" ? parts : parts.slice(1);
   return { view: "files", section, dir: normalizeRouteDir(dirParts.join("/")) };
@@ -88,6 +87,8 @@ function fileKindLabel(kind: FileEntry["kind"]): string {
 
 const SIDEBAR_COLLAPSED_KEY = "knbox.sidebarCollapsed";
 const MOBILE_SIDEBAR_QUERY = "(max-width: 720px)";
+const AGENT_SKILL_PROMPT = `帮我安装 KN Box Skills
+npx skills add summic/knbox-skills`;
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
   try {
@@ -279,7 +280,7 @@ export function App() {
   if (!user) return <Login authConfig={authConfig} />;
 
   const route = parsePath(path);
-  const nav = route.view === "files" ? route.section : route.view === "help" ? route.helpDoc ?? "usage" : route.view;
+  const nav = route.view === "files" ? route.section : route.view === "help" ? "help" : route.view;
 
   const go = (path: string) => {
     setMobileSidebarOpen(false);
@@ -298,8 +299,6 @@ export function App() {
   const goSection = (s: FileSection) => go(routePath(s));
   const goTrash = () => go("~trash");
   const goHelp = () => go("~help");
-  const goCliHelp = () => go("~cli");
-  const goSkillsHelp = () => go("~skills");
   const goDir = (dir: string) => go(routePath(route.section, dir));
   const openSearchResult = (entry: FileEntry) => {
     setSearchOpen(false);
@@ -392,28 +391,12 @@ export function App() {
           <div className="kb-nav-group">
             <div className="kb-nav-section">帮助</div>
             <button
-              className={`kb-nav-item kb-nav-help-item ${nav === "usage" ? "is-active" : ""}`}
+              className={`kb-nav-item kb-nav-help-item ${nav === "help" ? "is-active" : ""}`}
               data-label="使用说明"
               onClick={goHelp}
             >
               <CircleHelp size={18} aria-hidden />
               <span>使用说明</span>
-            </button>
-            <button
-              className={`kb-nav-item kb-nav-help-item ${nav === "cli" ? "is-active" : ""}`}
-              data-label="命令行工具"
-              onClick={goCliHelp}
-            >
-              <FileIcon size={18} aria-hidden />
-              <span>命令行工具</span>
-            </button>
-            <button
-              className={`kb-nav-item kb-nav-help-item ${nav === "skills" ? "is-active" : ""}`}
-              data-label="Agent 集成"
-              onClick={goSkillsHelp}
-            >
-              <FolderIcon size={18} aria-hidden />
-              <span>Agent 集成</span>
             </button>
           </div>
         </nav>
@@ -527,7 +510,7 @@ export function App() {
 
         <main className="kb-content">
           {route.view === "help" ? (
-            <Help doc={route.helpDoc ?? "usage"} />
+            <Help />
           ) : route.view === "trash" ? (
             <TrashPage onRestored={() => setFilesRefreshKey((key) => key + 1)} />
           ) : (
@@ -737,6 +720,7 @@ function Login({ authConfig }: { authConfig: AuthConfig }) {
     const params = new URLSearchParams(window.location.search);
     return params.get("auth_error");
   });
+  const [copied, setCopied] = useState(false);
 
   const loginWithKylith = () => {
     if (!authConfig.kylithSso.enabled) {
@@ -747,18 +731,44 @@ function Login({ authConfig }: { authConfig: AuthConfig }) {
     window.location.href = `/api/auth/kylith/start?returnTo=${encodeURIComponent(returnTo || "/")}`;
   };
 
+  const copyAgentPrompt = async () => {
+    await navigator.clipboard?.writeText(AGENT_SKILL_PROMPT);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
   return (
     <div className="login-page">
       <div className="login-card">
         <div className="login-brand">
           <Box className="brand-mark" size={22} aria-hidden />
-          <span>KN Box</span>
+          <h1>KN Box</h1>
         </div>
-        <h1>登录</h1>
-        <p>登录后上传网页、Markdown 或图片，并打开你的专属浏览地址。</p>
+        <p className="login-intro">
+          KN Box 是为 AI Agent 设计的文件托管服务，也可以通过网页上传 Markdown、HTML 静态网页和图片，
+          生成公司内网访问链接。
+        </p>
+
+        <section className="login-mode">
+          <h2>给 AI Agent 使用</h2>
+          <p>把下面两行复制发给 Codex、Claude 或 Open Code：</p>
+          <div className="agent-prompt">
+            <pre><code>{AGENT_SKILL_PROMPT}</code></pre>
+            <button type="button" onClick={copyAgentPrompt} aria-label={copied ? "已复制" : "复制安装说明"}>
+              {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
+            </button>
+          </div>
+          <p>完成授权后，可以直接对 AI 助手说：“把 xxx 文件上传到 KN Box。”它会上传文件，并把访问链接发给你。</p>
+        </section>
+
+        <section className="login-mode">
+          <h2>网页版</h2>
+          <p>使用 Kylith 账号进入 KN Box，在网页中上传和管理文件。</p>
+        </section>
+
         {error && <div className="login-error">{error}</div>}
         <button className="sso-button" type="button" onClick={loginWithKylith}>
-          使用 KYLITH 账号登录
+          使用 Kylith 账号登录
         </button>
       </div>
     </div>
