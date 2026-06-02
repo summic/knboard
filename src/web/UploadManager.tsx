@@ -11,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { api, uploadFile, type UploadConflictMode } from "./api";
+import { absoluteUrl } from "./url";
 
 type UploadStatus = "uploading" | "done" | "error" | "canceled" | "ignored";
 
@@ -553,8 +554,9 @@ export function UploadManager({
 function UploadRow({ item, onCancel }: { item: UploadItem; onCancel: () => void }) {
   const pct = item.size ? Math.min(100, Math.round((item.loaded / item.size) * 100)) : 0;
   const destination = formatUploadPath(itemDestinationDir(item));
+  const fullUrl = absoluteUrl(item.url);
   const copy = () => {
-    if (item.url) navigator.clipboard?.writeText(window.location.origin + item.url);
+    if (fullUrl) navigator.clipboard?.writeText(fullUrl);
   };
   return (
     <li className="up-item">

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { api, type FileEntry, type FileListing, type FileSection } from "./api";
+import { absoluteUrl } from "./url";
 
 type Props = {
   section: FileSection;
@@ -614,7 +615,7 @@ function EntryIcon({ entry, size, compact = false }: { entry: FileEntry; size: n
 }
 
 function PreviewPanel({ entry, onClose }: { entry: FileEntry; onClose: () => void }) {
-  const fullUrl = entry.url ? `${window.location.origin}${entry.url}` : "";
+  const fullUrl = absoluteUrl(entry.url);
   const copy = () => {
     if (fullUrl) navigator.clipboard?.writeText(fullUrl);
   };
@@ -631,7 +632,7 @@ function PreviewPanel({ entry, onClose }: { entry: FileEntry; onClose: () => voi
             <Copy size={15} aria-hidden />
             复制链接
           </button>
-          <a href={entry.url ?? "#"} target="_blank" rel="noreferrer">
+          <a href={fullUrl || "#"} target="_blank" rel="noreferrer">
             <ExternalLink size={15} aria-hidden />
             在新窗口打开
           </a>
@@ -648,9 +649,9 @@ function PreviewPanel({ entry, onClose }: { entry: FileEntry; onClose: () => voi
       </div>
       <div className="fm-preview-body">
         {entry.kind === "image" ? (
-          <img src={entry.url ?? ""} alt={entry.name} />
+          <img src={fullUrl} alt={entry.name} />
         ) : (
-          <iframe title={entry.name} src={entry.url ?? "about:blank"} sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" />
+          <iframe title={entry.name} src={fullUrl || "about:blank"} sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" />
         )}
       </div>
     </aside>
