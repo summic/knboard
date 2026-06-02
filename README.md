@@ -9,7 +9,7 @@ KN Box 是一个面向公司内部使用的文档和静态网页托管服务。�
 - 提供 Express 服务端和 React 网页界面
 - 通过 KYLITH SSO 登录，使用 HTTP-only Cookie 保存登录态
 - 登录会话写入 SQLite，服务重启后不会踢掉已登录用户
-- 每个用户拥有独立的个人目录，存储目录按用户 ID 隔离，访问路径为 `/u/user-<id>/<path>`
+- 每个用户拥有独立的个人目录，存储目录按 username 隔离，访问路径为 `/u/<username>/<path>`
 - 支持上传 Markdown、网页文件和图片文件，单文件最大 10 MB
 - 默认用户容量配额为 1 GB，并限制上传目录深度、单批文件数和单批总大小
 - 上传文件夹时保留目录结构，自动忽略隐藏文件、隐藏目录和 `.DS_Store`
@@ -92,7 +92,7 @@ data/
   tmp/
     uploads/
   users/
-    user-1/
+    admin/
       index.html
       guide.md
       assets/
@@ -102,7 +102,7 @@ data/
 其中：
 
 - `knbox.sqlite` 保存用户、会话、CLI Token、文件记录、软删除状态等信息
-- `users/user-<id>/` 保存用户上传的真实文件，避免同名账号或邮箱前缀撞目录
+- `users/<username>/` 保存用户上传的真实文件。首次通过 SSO 创建用户时，如果规范化后的 username 已存在，登录会直接失败，需要先处理账号命名冲突
 - `tmp/uploads/` 用于上传过程中的临时文件
 
 ## KYLITH SSO

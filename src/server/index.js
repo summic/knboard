@@ -360,7 +360,7 @@ export async function startServer({ port = 6789, open = false } = {}) {
   const url = `http://localhost:${actualPort}`;
   console.log(`\n  KN Box data dir ${dataDir}`);
   if (kylithSso.configured) console.log(`      KYLITH SSO redirect ${kylithSso.redirectUri}`);
-  if (filesPublicUrl) console.log(`      public files ${filesPublicUrl}/u/<user-id>/...`);
+  if (filesPublicUrl) console.log(`      public files ${filesPublicUrl}/u/<username>/...`);
   console.log(`      ${dev ? "API on" : "open"} ${url}\n`);
 
   if (open && !dev) {

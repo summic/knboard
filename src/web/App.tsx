@@ -87,6 +87,7 @@ function fileKindLabel(kind: FileEntry["kind"]): string {
 }
 
 const SIDEBAR_COLLAPSED_KEY = "knbox.sidebarCollapsed";
+const MOBILE_SIDEBAR_QUERY = "(max-width: 720px)";
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
   try {
@@ -112,6 +113,8 @@ export function App() {
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(() => readStoredBoolean(SIDEBAR_COLLAPSED_KEY, false));
+  const [isMobileLayout, setIsMobileLayout] = useState(() => window.matchMedia(MOBILE_SIDEBAR_QUERY).matches);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
   const [filesRefreshKey, setFilesRefreshKey] = useState(0);
   const [storage, setStorage] = useState<StorageUsage | null>(null);
@@ -162,6 +165,26 @@ export function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_SIDEBAR_QUERY);
+    const onChange = () => {
+      setIsMobileLayout(media.matches);
+      if (!media.matches) setMobileSidebarOpen(false);
+    };
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileSidebarOpen]);
 
   useEffect(() => {
     const q = query.trim();
@@ -259,6 +282,7 @@ export function App() {
   const nav = route.view === "files" ? route.section : route.view === "help" ? route.helpDoc ?? "usage" : route.view;
 
   const go = (path: string) => {
+    setMobileSidebarOpen(false);
     const encoded = path
       .split("/")
       .filter(Boolean)
@@ -315,8 +339,8 @@ export function App() {
   };
 
   return (
-    <div className={`kb-app ${collapsed ? "is-collapsed" : ""}`}>
-      <aside className="kb-sidebar">
+    <div className={`kb-app ${collapsed ? "is-collapsed" : ""} ${mobileSidebarOpen ? "is-mobile-sidebar-open" : ""}`}>
+      <aside className="kb-sidebar" id="kb-sidebar">
         <div className="kb-sidebar-top">
           <button className="kb-brand" onClick={goHome} title="KN Box">
             <span className="kb-brand-mark">
@@ -418,6 +442,7 @@ export function App() {
           </div>
         </div>
       </aside>
+      {mobileSidebarOpen && <button className="kb-sidebar-backdrop" aria-label="关闭侧边栏" onClick={() => setMobileSidebarOpen(false)} />}
 
       <div className="kb-main">
         <header className="kb-topbar">
@@ -425,9 +450,15 @@ export function App() {
             className="kb-collapse"
             onClick={(event) => {
               event.currentTarget.blur();
+              if (isMobileLayout) {
+                setMobileSidebarOpen((open) => !open);
+                return;
+              }
               setCollapsed((c) => !c);
             }}
-            aria-label={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+            aria-controls="kb-sidebar"
+            aria-expanded={isMobileLayout ? mobileSidebarOpen : !collapsed}
+            aria-label={isMobileLayout ? "打开侧边栏" : collapsed ? "展开侧边栏" : "折叠侧边栏"}
           >
             <PanelLeft size={18} aria-hidden />
           </button>

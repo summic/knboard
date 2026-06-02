@@ -76,7 +76,6 @@ function writeStoredFileState(section: FileSection, patch: Partial<{ previewPath
 export function Home({ section, dir, onDirChange, query, refreshKey, previewPath, onPreviewConsumed, onFilesChanged, onPreviewOpen }: Props) {
   const [view, setView] = useState<ViewMode>(() => readStoredView());
   const [listing, setListing] = useState<FileListing | null>(null);
-  const [selected, setSelected] = useState<FileEntry | null>(null);
   const [checkedPaths, setCheckedPaths] = useState<Set<string>>(() => new Set());
   const [preview, setPreview] = useState<FileEntry | null>(null);
   const [pendingPreviewPath, setPendingPreviewPath] = useState<string | null>(() => readStoredFileState(section).previewPath);
@@ -93,7 +92,6 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
 
   useEffect(() => {
     const state = readStoredFileState(section);
-    setSelected(null);
     setCheckedPaths(new Set());
     setPreview(null);
     setPendingPreviewPath(state.previewPath);
@@ -154,7 +152,6 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
     if (!pendingPreviewPath) return;
     const entry = entries.find((item) => item.path === pendingPreviewPath && item.kind !== "directory");
     if (!entry) return;
-    setSelected(entry);
     setPreview(entry);
     setPendingPreviewPath(null);
     onPreviewConsumed?.();
@@ -172,7 +169,6 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
 
   const enterDirectory = (path: string) => {
     onDirChange(path);
-    setSelected(null);
     writeStoredFileState(section, { previewPath: null });
     setPendingPreviewPath(null);
     setPreview(null);
@@ -225,7 +221,6 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
     try {
       await api.deleteFiles(paths, deleteConfirmName);
       setCheckedPaths(new Set());
-      setSelected(null);
       setPreview((current) => {
         if (!current || !paths.includes(current.path)) return current;
         writeStoredFileState(section, { previewPath: null });
@@ -377,13 +372,9 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
               <EntryRow
                 key={entry.path}
                 entry={entry}
-                selected={selected?.path === entry.path}
                 checked={checkedPaths.has(entry.path)}
                 onToggleChecked={() => toggleChecked(entry)}
-                onSelect={() => {
-                  setSelected(entry);
-                  openEntry(entry);
-                }}
+                onOpen={() => openEntry(entry)}
               />
             ))}
           </div>
@@ -393,13 +384,9 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
               <EntryCard
                 key={entry.path}
                 entry={entry}
-                selected={selected?.path === entry.path}
                 checked={checkedPaths.has(entry.path)}
                 onToggleChecked={() => toggleChecked(entry)}
-                onSelect={() => {
-                  setSelected(entry);
-                  openEntry(entry);
-                }}
+                onOpen={() => openEntry(entry)}
               />
             ))}
           </div>
@@ -543,19 +530,28 @@ function Breadcrumb({ dir, onRoot, onJump }: { dir: string; onRoot: () => void; 
 
 function EntryRow({
   entry,
-  selected,
   checked,
   onToggleChecked,
-  onSelect,
+  onOpen,
 }: {
   entry: FileEntry;
-  selected: boolean;
   checked: boolean;
   onToggleChecked: () => void;
-  onSelect: () => void;
+  onOpen: () => void;
 }) {
   return (
-    <div className={`fm-row ${selected ? "is-selected" : ""} ${checked ? "is-checked" : ""}`} onClick={onSelect} role="button" tabIndex={0}>
+    <div
+      className={`fm-row ${checked ? "is-checked" : ""}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
         <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
       </label>
@@ -571,19 +567,28 @@ function EntryRow({
 
 function EntryCard({
   entry,
-  selected,
   checked,
   onToggleChecked,
-  onSelect,
+  onOpen,
 }: {
   entry: FileEntry;
-  selected: boolean;
   checked: boolean;
   onToggleChecked: () => void;
-  onSelect: () => void;
+  onOpen: () => void;
 }) {
   return (
-    <div className={`fm-card ${selected ? "is-selected" : ""} ${checked ? "is-checked" : ""}`} onClick={onSelect} role="button" tabIndex={0}>
+    <div
+      className={`fm-card ${checked ? "is-checked" : ""}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
         <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
       </label>
