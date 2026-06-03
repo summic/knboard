@@ -1,7 +1,7 @@
 export type User = {
   id: number;
   username: string;
-  role: "admin" | "user";
+  role: "super_admin" | "admin" | "user";
   email?: string | null;
   name?: string | null;
   title?: string | null;
@@ -149,4 +149,11 @@ export const api = {
     }),
   deleteFiles: (paths: string[], confirmName: string) =>
     req<{ ok: true; deleted: number }>("/api/files", { method: "DELETE", body: JSON.stringify({ paths, confirmName }) }),
+  adminUsers: () => req<{ items: User[] }>("/api/admin/users"),
+  makeUserAdmin: (id: number) =>
+    req<{ user: User }>(`/api/admin/users/${enc(String(id))}/admin`, { method: "POST" }),
+  revokeUserAdmin: (id: number) =>
+    req<{ user: User }>(`/api/admin/users/${enc(String(id))}/admin`, { method: "DELETE" }),
+  adminUserFiles: (id: number, dir = "", type: FileSection = "all") =>
+    req<FileListing>(`/api/admin/users/${enc(String(id))}/files?dir=${enc(dir)}&type=${enc(type)}`),
 };

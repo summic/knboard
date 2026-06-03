@@ -29,12 +29,15 @@ type Props = {
   onPreviewConsumed?: () => void;
   onFilesChanged?: () => void;
   onPreviewOpen?: () => void;
+  listFiles?: (dir: string, type: FileSection) => Promise<FileListing>;
+  readOnly?: boolean;
+  titleOverride?: string;
+  description?: string;
 };
 
 type ViewMode = "list" | "grid";
 
 const FILE_VIEW_KEY = "knbox.fileView";
-const FILE_STATE_KEY = "knbox.fileState";
 const SECTION_META: Record<FileSection, { title: string; empty: string }> = {
   all: { title: "首页", empty: "这里还没有任何内容。" },
   web: { title: "网页", empty: "还没有网页或 Markdown 文件。" },
@@ -52,34 +55,26 @@ function readStoredView(): ViewMode {
   return "grid";
 }
 
-function readStoredFileState(section: FileSection): { previewPath: string | null } {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(FILE_STATE_KEY) || "{}");
-    const state = value?.[section];
-    return {
-      previewPath: typeof state?.previewPath === "string" ? state.previewPath : null,
-    };
-  } catch {
-    return { previewPath: null };
-  }
-}
-
-function writeStoredFileState(section: FileSection, patch: Partial<{ previewPath: string | null }>) {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(FILE_STATE_KEY) || "{}");
-    value[section] = { ...(value[section] || {}), ...patch };
-    window.localStorage.setItem(FILE_STATE_KEY, JSON.stringify(value));
-  } catch {
-    /* ignore unavailable localStorage */
-  }
-}
-
-export function Home({ section, dir, onDirChange, query, refreshKey, previewPath, onPreviewConsumed, onFilesChanged, onPreviewOpen }: Props) {
+export function Home({
+  section,
+  dir,
+  onDirChange,
+  query,
+  refreshKey,
+  previewPath,
+  onPreviewConsumed,
+  onFilesChanged,
+  onPreviewOpen,
+  listFiles = api.listFiles,
+  readOnly = false,
+  titleOverride,
+  description,
+}: Props) {
   const [view, setView] = useState<ViewMode>(() => readStoredView());
   const [listing, setListing] = useState<FileListing | null>(null);
   const [checkedPaths, setCheckedPaths] = useState<Set<string>>(() => new Set());
   const [preview, setPreview] = useState<FileEntry | null>(null);
-  const [pendingPreviewPath, setPendingPreviewPath] = useState<string | null>(() => readStoredFileState(section).previewPath);
+  const [pendingPreviewPath, setPendingPreviewPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [folderPopoverOpen, setFolderPopoverOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
@@ -92,11 +87,10 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
-    const state = readStoredFileState(section);
     setCheckedPaths(new Set());
     setPreview(null);
-    setPendingPreviewPath(state.previewPath);
-  }, [section]);
+    setPendingPreviewPath(null);
+  }, [section, dir]);
 
   useEffect(() => {
     try {
@@ -109,8 +103,7 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
   useEffect(() => {
     let canceled = false;
     setError(null);
-    api
-      .listFiles(dir, section)
+    listFiles(dir, section)
       .then((res) => {
         if (!canceled) setListing(res);
       })
@@ -120,19 +113,18 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
     return () => {
       canceled = true;
     };
-  }, [dir, section, refreshKey, localRefreshKey]);
+  }, [dir, section, refreshKey, localRefreshKey, listFiles]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        writeStoredFileState(section, { previewPath: null });
         setPendingPreviewPath(null);
         setPreview(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [section]);
+  }, []);
 
   const entries = useMemo(() => {
     const items = listing?.items ?? [];
@@ -166,11 +158,10 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
   const currentDir = listing?.dir ?? dir;
   const parent = listing?.parent ?? null;
   const currentDirParts = currentDir.split("/").filter(Boolean);
-  const pageTitle = currentDirParts.length ? currentDirParts[currentDirParts.length - 1] : meta.title;
+  const pageTitle = currentDirParts.length ? currentDirParts[currentDirParts.length - 1] : titleOverride || meta.title;
 
   const enterDirectory = (path: string) => {
     onDirChange(path);
-    writeStoredFileState(section, { previewPath: null });
     setPendingPreviewPath(null);
     setPreview(null);
   };
@@ -180,13 +171,11 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
       enterDirectory(entry.path);
       return;
     }
-    writeStoredFileState(section, { previewPath: entry.path });
     onPreviewOpen?.();
     setPreview(entry);
   };
 
   const closePreview = () => {
-    writeStoredFileState(section, { previewPath: null });
     setPendingPreviewPath(null);
     setPreview(null);
   };
@@ -224,7 +213,6 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
       setCheckedPaths(new Set());
       setPreview((current) => {
         if (!current || !paths.includes(current.path)) return current;
-        writeStoredFileState(section, { previewPath: null });
         return null;
       });
       setDeleteDialogOpen(false);
@@ -268,7 +256,7 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
               <Breadcrumb dir={currentDir} onRoot={() => enterDirectory("")} onJump={enterDirectory} />
             </div>
           </div>
-          <div className="fm-new-folder">
+          {!readOnly && <div className="fm-new-folder">
             <button
               className="fm-new-folder-btn"
               title="新文件夹"
@@ -316,8 +304,9 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
                 </div>
               </form>
             )}
-          </div>
+          </div>}
         </div>
+        {description && <p className="fm-desc">{description}</p>}
 
         <div className="fm-toolbar">
           {currentDir && (
@@ -327,7 +316,7 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
             </button>
           )}
           <span className="fm-count">{entries.length} 个项目</span>
-          {checkedCount > 0 && (
+          {!readOnly && checkedCount > 0 && (
             <button className="fm-delete-action" onClick={deleteChecked}>
               <Trash2 size={15} aria-hidden />
               {checkedCount === 1 ? "删除" : `删除 ${checkedCount} 个项目`}
@@ -357,10 +346,10 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
             <p>{error}</p>
           </div>
         ) : entries.length === 0 ? (
-          <div className={`fm-empty ${section === "all" && !currentDir && !query.trim() ? "has-guide" : ""}`}>
+          <div className={`fm-empty ${!readOnly && section === "all" && !currentDir && !query.trim() ? "has-guide" : ""}`}>
             <Folder size={28} aria-hidden />
             <p>{query.trim() ? `没有匹配「${query.trim()}」的项目。` : meta.empty}</p>
-            {section === "all" && !currentDir && !query.trim() && <EmptyGuide />}
+            {!readOnly && section === "all" && !currentDir && !query.trim() && <EmptyGuide />}
           </div>
         ) : view === "list" ? (
           <div className="fm-list">
@@ -373,7 +362,8 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
               <EntryRow
                 key={entry.path}
                 entry={entry}
-                checked={checkedPaths.has(entry.path)}
+                checked={!readOnly && checkedPaths.has(entry.path)}
+                selectable={!readOnly}
                 onToggleChecked={() => toggleChecked(entry)}
                 onOpen={() => openEntry(entry)}
               />
@@ -385,7 +375,8 @@ export function Home({ section, dir, onDirChange, query, refreshKey, previewPath
               <EntryCard
                 key={entry.path}
                 entry={entry}
-                checked={checkedPaths.has(entry.path)}
+                checked={!readOnly && checkedPaths.has(entry.path)}
+                selectable={!readOnly}
                 onToggleChecked={() => toggleChecked(entry)}
                 onOpen={() => openEntry(entry)}
               />
@@ -524,11 +515,13 @@ function Breadcrumb({ dir, onRoot, onJump }: { dir: string; onRoot: () => void; 
 function EntryRow({
   entry,
   checked,
+  selectable = true,
   onToggleChecked,
   onOpen,
 }: {
   entry: FileEntry;
   checked: boolean;
+  selectable?: boolean;
   onToggleChecked: () => void;
   onOpen: () => void;
 }) {
@@ -545,9 +538,11 @@ function EntryRow({
       role="button"
       tabIndex={0}
     >
-      <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
-        <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
-      </label>
+      {selectable && (
+        <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
+          <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
+        </label>
+      )}
       <span className="fm-row-name">
         <EntryIcon entry={entry} size={18} compact />
         <span className="fm-row-title">{entry.name}</span>
@@ -561,11 +556,13 @@ function EntryRow({
 function EntryCard({
   entry,
   checked,
+  selectable = true,
   onToggleChecked,
   onOpen,
 }: {
   entry: FileEntry;
   checked: boolean;
+  selectable?: boolean;
   onToggleChecked: () => void;
   onOpen: () => void;
 }) {
@@ -582,9 +579,11 @@ function EntryCard({
       role="button"
       tabIndex={0}
     >
-      <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
-        <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
-      </label>
+      {selectable && (
+        <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
+          <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
+        </label>
+      )}
       <EntryIcon entry={entry} size={34} />
       <span className="fm-card-name" title={entry.name}>
         {entry.name}

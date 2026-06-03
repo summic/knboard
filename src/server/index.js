@@ -183,6 +183,34 @@ export async function startServer({ port = 6789, open = false } = {}) {
     res.json({ ok: true, revoked: auth.revokeCliToken(req.user.id, req.params.id) });
   });
 
+  app.get("/api/admin/users", auth.requireAdmin, (_req, res) => {
+    res.json({ items: auth.listUsers() });
+  });
+
+  app.post("/api/admin/users/:id/admin", auth.requireSuperAdmin, (req, res) => {
+    const user = auth.makeUserAdmin(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    return res.json({ user });
+  });
+
+  app.delete("/api/admin/users/:id/admin", auth.requireSuperAdmin, (req, res) => {
+    const user = auth.revokeUserAdmin(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    return res.json({ user });
+  });
+
+  app.get("/api/admin/users/:id/files", auth.requireAdmin, asyncRoute(async (req, res) => {
+    const targetUser = auth.getUser(req.params.id);
+    if (!targetUser) return res.status(404).json({ error: "User not found." });
+    const listing = await listUserFiles({
+      filesDir: auth.userUploadsDir(targetUser),
+      publicBasePath: publicFileBasePath({ auth, user: targetUser, filesPublicUrl }),
+      dir: req.query.dir,
+      type: req.query.type || "all",
+    });
+    return res.json(listing);
+  }));
+
   app.post("/api/uploads/conflicts", auth.requireUser, express.json({ limit: "256kb" }), asyncRoute(async (req, res) => {
     assertUploadBatch(req.body?.paths, req.body?.totalBytes);
     const result = await resolveUserFileConflicts({

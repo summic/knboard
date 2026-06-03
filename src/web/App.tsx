@@ -17,14 +17,16 @@ import {
   RotateCcw,
   Copy,
   Check,
+  Shield,
 } from "lucide-react";
 import { api, AuthRequiredError, type AuthConfig, type FileEntry, type FileSection, type StorageUsage, type TrashEntry, type User } from "./api";
+import { AdminPage } from "./Admin";
 import { Home } from "./Home";
 import { Help } from "./Help";
 import { useUploads, UploadManager } from "./UploadManager";
 
-type AppView = "files" | "trash" | "help";
-type Route = { view: AppView; section: FileSection; dir: string };
+type AppView = "files" | "trash" | "help" | "admin";
+type Route = { view: AppView; section: FileSection; dir: string; adminUserId?: number | null };
 
 const SECTIONS: Record<string, FileSection> = {
   "~web": "web",
@@ -38,6 +40,15 @@ function parsePath(pathname: string): Route {
   const parts = raw.split("/").filter(Boolean);
   if (parts[0] === "~trash") return { view: "trash", section: "all", dir: "" };
   if (parts[0] === "~help" || parts[0] === "~cli" || parts[0] === "~skills") return { view: "help", section: "all", dir: "" };
+  if (parts[0] === "~admin") {
+    const userId = parts[1] === "users" ? Number(parts[2]) : null;
+    return {
+      view: "admin",
+      section: "all",
+      dir: Number.isInteger(userId) && userId && userId > 0 ? normalizeRouteDir(parts.slice(3).join("/")) : "",
+      adminUserId: Number.isInteger(userId) && userId && userId > 0 ? userId : null,
+    };
+  }
   const section = SECTIONS[parts[0]] ?? "all";
   const dirParts = section === "all" ? parts : parts.slice(1);
   return { view: "files", section, dir: normalizeRouteDir(dirParts.join("/")) };
@@ -299,7 +310,10 @@ export function App() {
   const goSection = (s: FileSection) => go(routePath(s));
   const goTrash = () => go("~trash");
   const goHelp = () => go("~help");
+  const goAdmin = () => go("~admin");
   const goDir = (dir: string) => go(routePath(route.section, dir));
+  const goAdminUserDir = (userId: number, dir = "") =>
+    go(["~admin", "users", String(userId), normalizeRouteDir(dir)].filter(Boolean).join("/"));
   const openSearchResult = (entry: FileEntry) => {
     setSearchOpen(false);
     setQuery("");
@@ -402,6 +416,16 @@ export function App() {
         </nav>
 
         <div className="kb-sidebar-foot">
+          {(user.role === "admin" || user.role === "super_admin") && (
+            <button
+              className={`kb-nav-item kb-admin-entry ${nav === "admin" ? "is-active" : ""}`}
+              data-label="管理"
+              onClick={goAdmin}
+            >
+              <Shield size={18} aria-hidden />
+              <span>管理</span>
+            </button>
+          )}
           <div className="kb-user-row">
             <div className="kb-user-hover">
               <StorageCard usage={storage} />
@@ -445,46 +469,48 @@ export function App() {
           >
             <PanelLeft size={18} aria-hidden />
           </button>
-          <div className="kb-search-wrap" ref={searchRef}>
-            <div className="kb-search">
-              <Search size={16} aria-hidden />
-              <input
-                type="search"
-                placeholder="搜索"
-                value={query}
-                onFocus={() => setSearchOpen(true)}
-                onKeyDown={onSearchKeyDown}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setSearchOpen(true);
-                }}
-              />
-            </div>
-            {searchOpen && query.trim() && (
-              <div className="kb-search-menu">
-                {searchLoading ? (
-                  <div className="kb-search-empty">搜索中…</div>
-                ) : searchResults.length ? (
-                  searchResults.map((entry, index) => (
-                    <button
-                      key={entry.path}
-                      className={`kb-search-option ${index === searchActiveIndex ? "is-active" : ""}`}
-                      onMouseEnter={() => setSearchActiveIndex(index)}
-                      onClick={() => openSearchResult(entry)}
-                    >
-                      <span className={`kb-search-kind is-${entry.kind}`}>{entry.kind === "directory" ? "DIR" : fileKindLabel(entry.kind)}</span>
-                      <span className="kb-search-main">
-                        <span className="kb-search-name">{entry.name}</span>
-                        <span className="kb-search-path">/{entry.path}</span>
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="kb-search-empty">没有匹配文件</div>
-                )}
+          {route.view !== "admin" && (
+            <div className="kb-search-wrap" ref={searchRef}>
+              <div className="kb-search">
+                <Search size={16} aria-hidden />
+                <input
+                  type="search"
+                  placeholder="搜索"
+                  value={query}
+                  onFocus={() => setSearchOpen(true)}
+                  onKeyDown={onSearchKeyDown}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setSearchOpen(true);
+                  }}
+                />
               </div>
-            )}
-          </div>
+              {searchOpen && query.trim() && (
+                <div className="kb-search-menu">
+                  {searchLoading ? (
+                    <div className="kb-search-empty">搜索中…</div>
+                  ) : searchResults.length ? (
+                    searchResults.map((entry, index) => (
+                      <button
+                        key={entry.path}
+                        className={`kb-search-option ${index === searchActiveIndex ? "is-active" : ""}`}
+                        onMouseEnter={() => setSearchActiveIndex(index)}
+                        onClick={() => openSearchResult(entry)}
+                      >
+                        <span className={`kb-search-kind is-${entry.kind}`}>{entry.kind === "directory" ? "DIR" : fileKindLabel(entry.kind)}</span>
+                        <span className="kb-search-main">
+                          <span className="kb-search-name">{entry.name}</span>
+                          <span className="kb-search-path">/{entry.path}</span>
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="kb-search-empty">没有匹配文件</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {route.view === "files" && (
             <div className="kb-new-wrap">
               <button className="kb-new" onClick={() => setUploadMenuOpen((o) => !o)}>
@@ -513,6 +539,17 @@ export function App() {
             <Help />
           ) : route.view === "trash" ? (
             <TrashPage onRestored={() => setFilesRefreshKey((key) => key + 1)} />
+          ) : route.view === "admin" ? (
+            <AdminPage
+              currentUser={user}
+              selectedUserId={route.adminUserId}
+              dir={route.dir}
+              onSelectUser={(userId) => goAdminUserDir(userId)}
+              onUserDirChange={goAdminUserDir}
+              onPreviewOpen={() => {
+                if (uploads.open && !uploads.collapsed) uploads.setCollapsed(true);
+              }}
+            />
           ) : (
             <Home
               section={route.section}

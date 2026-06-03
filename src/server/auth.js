@@ -192,6 +192,50 @@ export function createAuth({ dataDir }) {
         return res.status(401).json({ error: "Authentication required." });
       },
 
+      requireAdmin(req, res, next) {
+        if (!req.user) return res.status(401).json({ error: "Authentication required." });
+        if (!isAdminRole(req.user.role)) return res.status(403).json({ error: "Admin access required." });
+        return next();
+      },
+
+      requireSuperAdmin(req, res, next) {
+        if (!req.user) return res.status(401).json({ error: "Authentication required." });
+        if (req.user.role !== "super_admin") return res.status(403).json({ error: "Super admin access required." });
+        return next();
+      },
+
+      listUsers() {
+        return db
+          .prepare("SELECT * FROM users ORDER BY created_at DESC, id DESC")
+          .all()
+          .map(publicUser);
+      },
+
+      getUser(id) {
+        const user = findUserById(db, Number(id));
+        return user ? publicUser(user) : null;
+      },
+
+      makeUserAdmin(id) {
+        const userId = Number(id);
+        if (!Number.isInteger(userId) || userId <= 0) return null;
+        const existing = findUserById(db, userId);
+        if (!existing) return null;
+        if (existing.role === "user") db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(userId);
+        const user = findUserById(db, userId);
+        return publicUser(user);
+      },
+
+      revokeUserAdmin(id) {
+        const userId = Number(id);
+        if (!Number.isInteger(userId) || userId <= 0) return null;
+        const existing = findUserById(db, userId);
+        if (!existing) return null;
+        if (existing.role === "admin") db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(userId);
+        const user = findUserById(db, userId);
+        return publicUser(user);
+      },
+
       userUploadsDir(user) {
         return path.join(root, "users", userStorageName(user));
       },
@@ -278,6 +322,10 @@ function publicUser(user) {
     avatarUrl: user.avatar_url || null,
     provider: user.provider || "local",
   };
+}
+
+function isAdminRole(role) {
+  return role === "admin" || role === "super_admin";
 }
 
 function publicCliToken(row) {
