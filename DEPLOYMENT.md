@@ -76,17 +76,18 @@ Merging to the `release` branch triggers `.github/workflows/release.yml`.
 The workflow:
 
 1. Installs dependencies with `npm ci --ignore-scripts`.
-2. Runs type and JavaScript syntax checks.
-3. Runs the automated server regression tests.
-4. Builds the web bundle.
-5. Builds a Docker image.
-6. Uploads the image to the production host.
-7. Starts the container with:
+2. Rebuilds the native `better-sqlite3` binding.
+3. Runs type and JavaScript syntax checks.
+4. Runs the automated server regression tests.
+5. Builds the web bundle.
+6. Builds a Docker image.
+7. Uploads the image to the production host.
+8. Starts the container with:
    - `KNBOX_PUBLIC_URL=https://box.beforeve.com`
    - `KNBOX_FILES_PUBLIC_URL=https://b.beforeve.com`
    - `KNBOX_DATA_DIR=/data`
-8. Checks the local container health.
-9. Verifies that `b.beforeve.com` host requests cannot access `/api/auth/config`.
+9. Checks the local container health.
+10. Verifies that `b.beforeve.com` host requests cannot access `/api/auth/config`.
 
 After deployment, verify:
 
