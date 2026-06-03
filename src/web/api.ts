@@ -116,8 +116,6 @@ const enc = encodeURIComponent;
 export const api = {
   authConfig: () => req<AuthConfig>("/api/auth/config"),
   me: () => req<{ user: User }>("/api/auth/me"),
-  login: (data: { username: string; password: string }) =>
-    req<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify(data) }),
   logout: () => req<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   resolveUploadConflicts: (paths: string[], baseDir = "", totalBytes = 0) =>
     req<UploadConflictResult>("/api/uploads/conflicts", {

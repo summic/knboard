@@ -70,21 +70,27 @@ function listen(app, startPort, maxTries = 20) {
   return tryPort(startPort, maxTries);
 }
 
-export async function startServer({ port = 6789, open = false } = {}) {
-  const dataDir = path.resolve(process.env.KNBOX_DATA_DIR || path.join(process.cwd(), "data"));
+export async function createServerApp({
+  dataDir = path.resolve(process.env.KNBOX_DATA_DIR || path.join(process.cwd(), "data")),
+  publicUrl = process.env.KNBOX_PUBLIC_URL || "http://localhost:6789",
+  filesPublicUrl: rawFilesPublicUrl = process.env.KNBOX_FILES_PUBLIC_URL || "",
+  serveWeb = false,
+} = {}) {
   const auth = await createAuth({ dataDir });
-  const publicUrl = process.env.KNBOX_PUBLIC_URL || `http://localhost:${port}`;
-  const filesPublicUrl = cleanPublicUrl(process.env.KNBOX_FILES_PUBLIC_URL || "");
+  const filesPublicUrl = cleanPublicUrl(rawFilesPublicUrl);
   const filesPublicHost = filesPublicUrl ? new URL(filesPublicUrl).host.toLowerCase() : null;
   const kylithSso = createKylithSso({ publicUrl, sessionSecret: auth.sessionSecret });
   const fileUpload = createFileUploadMiddleware({ dataDir });
   const app = express();
+  app.disable("x-powered-by");
+  app.use(securityHeaders({ filesPublicHost, filesPublicUrl }));
   app.use((req, res, next) => {
     if (!filesPublicHost) return next();
     if (requestHost(req) !== filesPublicHost) return next();
     if (req.path.startsWith("/u/")) return next();
     res.status(404).type("text").send("Not found");
   });
+  app.use(originGuard({ publicUrl }));
   app.use(auth.loadUser);
 
   app.get("/api/auth/config", (_req, res) => {
@@ -101,6 +107,10 @@ export async function startServer({ port = 6789, open = false } = {}) {
     return res.json({ user: req.user });
   });
 
+  app.all("/api/auth/login", (_req, res) => {
+    res.status(404).json({ error: "Password login is not supported." });
+  });
+
   app.get("/api/cli/oauth/complete", auth.requireUser, (req, res) => {
     const callback = safeLoopbackCallback(req.query.callback);
     if (!callback) return res.status(400).json({ error: "Invalid CLI callback URL." });
@@ -112,13 +122,6 @@ export async function startServer({ port = 6789, open = false } = {}) {
     if (req.query.state) callback.searchParams.set("state", String(req.query.state));
     return res.redirect(callback.toString());
   });
-
-  app.post("/api/auth/login", express.json({ limit: "64kb" }), asyncRoute(async (req, res) => {
-    const user = await auth.verifyLogin(req.body?.username, req.body?.password);
-    if (!user) return res.status(401).json({ error: "Invalid username or password." });
-    setSessionCookie(req, res, auth.createSession(user.id));
-    return res.json({ user });
-  }));
 
   app.get("/api/auth/kylith/start", asyncRoute(async (req, res) => {
     if (!kylithSso.configured) return res.status(503).json({ error: "KYLITH SSO is not configured." });
@@ -364,8 +367,7 @@ export async function startServer({ port = 6789, open = false } = {}) {
     return next();
   });
 
-  const dev = process.env.KNBOX_DEV === "1";
-  if (!dev) {
+  if (serveWeb) {
     if (await fs.stat(WEB_DIST).catch(() => null)) {
       app.use(express.static(WEB_DIST));
       app.get("*", (_req, res) => res.sendFile(path.join(WEB_DIST, "index.html")));
@@ -378,6 +380,19 @@ export async function startServer({ port = 6789, open = false } = {}) {
     }
   }
 
+  return { app, auth, publicUrl, filesPublicUrl, filesPublicHost, kylithSso, dataDir };
+}
+
+export async function startServer({ port = 6789, open = false } = {}) {
+  const dataDir = path.resolve(process.env.KNBOX_DATA_DIR || path.join(process.cwd(), "data"));
+  const publicUrl = process.env.KNBOX_PUBLIC_URL || `http://localhost:${port}`;
+  const dev = process.env.KNBOX_DEV === "1";
+  const { app, auth, kylithSso, filesPublicUrl } = await createServerApp({
+    dataDir,
+    publicUrl,
+    filesPublicUrl: process.env.KNBOX_FILES_PUBLIC_URL || "",
+    serveWeb: !dev,
+  });
   const actualPort = await listen(app, port);
   if (actualPort !== port) {
     console.log(`\n  ⚠  port ${port} is in use — using ${actualPort} instead`);
@@ -426,6 +441,48 @@ function cleanPublicUrl(value) {
 
 function requestHost(req) {
   return String(req.headers.host || "").toLowerCase();
+}
+
+function securityHeaders({ filesPublicHost, filesPublicUrl }) {
+  const frameSources = ["'self'"];
+  if (filesPublicUrl) frameSources.push(new URL(filesPublicUrl).origin);
+  return (req, res, next) => {
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.set("Cross-Origin-Opener-Policy", "same-origin");
+    if (!req.path.startsWith("/u/") && (!filesPublicHost || requestHost(req) !== filesPublicHost)) {
+      res.set(
+        "Content-Security-Policy",
+        [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' https: data: blob:",
+          "font-src 'self' data:",
+          "connect-src 'self'",
+          `frame-src ${frameSources.join(" ")}`,
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+        ].join("; ")
+      );
+    }
+    next();
+  };
+}
+
+function originGuard({ publicUrl }) {
+  const publicOrigin = new URL(publicUrl).origin;
+  return (req, res, next) => {
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+    if (/^Bearer\s+/i.test(String(req.headers.authorization || ""))) return next();
+    const origin = req.headers.origin;
+    if (!origin) return next();
+    const requestOrigin = `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers.host}`;
+    if (origin === publicOrigin || origin === requestOrigin) return next();
+    return res.status(403).json({ error: "Invalid request origin." });
+  };
 }
 
 function safePublicFilePath(value) {

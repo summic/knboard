@@ -29,14 +29,16 @@
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "KNBOX_DEV=1 node bin/knbox.js serve --port 6789",
     "dev:web": "vite",
-    "check": "tsc --noEmit",
+    "check": "npm run check:types && npm run check:js",
+    "check:types": "tsc --noEmit",
+    "check:js": "find src bin scripts test \\( -name '*.js' -o -name '*.mjs' \\) | sort | xargs -n1 node --check",
+    "test": "node --test",
     "build": "vite build",
     "start": "node bin/knbox.js serve",
     "tokens:sync": "node scripts/sync-tokens.mjs",
     "prepare": "npm run build"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "express": "^4.19.2",
     "jose": "^5.10.0",

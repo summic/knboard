@@ -39,8 +39,6 @@ Options:
 
 Environment:
   KNBOX_DATA_DIR          Data directory for SQLite and uploaded files
-  KNBOX_ADMIN_USER        First admin username (default admin)
-  KNBOX_ADMIN_PASSWORD    First admin password (default admin123)
   KNBOX_SESSION_SECRET    Cookie signing secret
   KNBOX_PUBLIC_URL        Public origin used for SSO redirects
   KNBOX_FILES_PUBLIC_URL  Public origin for uploaded files

@@ -26,6 +26,18 @@ KNBOX_KYLITH_CREDENTIALS_FILE=<credentials-json-path>
 
 `KNBOX_USER_QUOTA_BYTES` defaults to 1 GB if it is not set.
 
+KN Box does not support password login and does not seed a default admin user.
+After the first super admin signs in through KYLITH once, promote that account
+on the production host:
+
+```bash
+cd /home/ubuntu/knbox
+docker exec knbox node scripts/set-super-admin.mjs user@example.com
+```
+
+If running the script outside the container, point it at the same persisted data
+directory used by the container.
+
 ## Reverse Proxy
 
 Both hostnames should proxy to the same Node service:
@@ -64,15 +76,17 @@ Merging to the `release` branch triggers `.github/workflows/release.yml`.
 The workflow:
 
 1. Installs dependencies with `npm ci --ignore-scripts`.
-2. Runs type checking and builds the web bundle.
-3. Builds a Docker image.
-4. Uploads the image to the production host.
-5. Starts the container with:
+2. Runs type and JavaScript syntax checks.
+3. Runs the automated server regression tests.
+4. Builds the web bundle.
+5. Builds a Docker image.
+6. Uploads the image to the production host.
+7. Starts the container with:
    - `KNBOX_PUBLIC_URL=https://box.beforeve.com`
    - `KNBOX_FILES_PUBLIC_URL=https://b.beforeve.com`
    - `KNBOX_DATA_DIR=/data`
-6. Checks the local container health.
-7. Verifies that `b.beforeve.com` host requests cannot access `/api/auth/config`.
+8. Checks the local container health.
+9. Verifies that `b.beforeve.com` host requests cannot access `/api/auth/config`.
 
 After deployment, verify:
 

@@ -1,4 +1,3 @@
-import bcrypt from "bcryptjs";
 import Database from "better-sqlite3";
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
@@ -62,20 +61,10 @@ export function createAuth({ dataDir }) {
       WHERE provider IS NOT NULL AND provider_subject IS NOT NULL;
     `);
 
-    seedAdmin(db);
-
     const auth = {
       dataDir: root,
       db,
       sessionSecret,
-
-      async verifyLogin(username, password) {
-        const user = findUserByUsername(db, username);
-        if (!user) return null;
-        if (!user.password_hash) return null;
-        const ok = await bcrypt.compare(password, user.password_hash);
-        return ok ? publicUser(user) : null;
-      },
 
       upsertExternalUser({ provider, subject, username, email, name, title, avatarUrl }) {
         const normalizedProvider = String(provider || "").trim();
@@ -267,16 +256,6 @@ function clearSessionCookie(res) {
   res.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
-function seedAdmin(db) {
-  const count = db.prepare("SELECT COUNT(*) AS count FROM users").get().count;
-  if (count > 0) return;
-
-  const username = process.env.KNBOX_ADMIN_USER || "admin";
-  const password = process.env.KNBOX_ADMIN_PASSWORD || "admin123";
-  const hash = bcrypt.hashSync(password, 12);
-  db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')").run(username, hash);
-}
-
 function ensureUserColumn(db, name, definition) {
   const columns = db.prepare("PRAGMA table_info(users)").all().map((col) => col.name);
   if (!columns.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
@@ -294,10 +273,6 @@ function getSessionSecret(db) {
      VALUES ('session_secret', ?, CURRENT_TIMESTAMP)`
   ).run(secret);
   return secret;
-}
-
-function findUserByUsername(db, username) {
-  return db.prepare("SELECT * FROM users WHERE username = ?").get(String(username || "").trim());
 }
 
 function findUserById(db, id) {

@@ -7,7 +7,7 @@ KN Box 是一个面向公司内部使用的文档和静态网页托管服务。�
 ## 主要能力
 
 - 提供 Express 服务端和 React 网页界面
-- 通过 KYLITH SSO 登录，使用 HTTP-only Cookie 保存登录态
+- 只通过 KYLITH OAuth 登录，使用 HTTP-only Cookie 保存登录态
 - 登录会话写入 SQLite，服务重启后不会踢掉已登录用户
 - 每个用户拥有独立的个人目录，存储目录按 username 隔离，访问路径为 `/u/<username>/<path>`
 - 支持上传 Markdown、网页文件和图片文件，单文件最大 10 MB
@@ -42,6 +42,12 @@ node bin/knbox.js serve --port 6789
 
 ```text
 http://localhost:6789
+```
+
+KN Box 没有用户名密码登录，也不会自动创建默认管理员。开发或生产环境都需要先配置 KYLITH OAuth；用户首次登录后，可以用邮箱提升超级管理员：
+
+```bash
+KNBOX_DATA_DIR=/var/lib/knbox node scripts/set-super-admin.mjs user@example.com
 ```
 
 ## 生产部署
@@ -101,13 +107,14 @@ data/
 
 其中：
 
-- `knbox.sqlite` 保存用户、会话、CLI Token、文件记录、软删除状态等信息
+- `knbox.sqlite` 保存用户、会话和 CLI Token 等身份数据
 - `users/<username>/` 保存用户上传的真实文件。首次通过 SSO 创建用户时，如果规范化后的 username 已存在，登录会直接失败，需要先处理账号命名冲突
 - `tmp/uploads/` 用于上传过程中的临时文件
+- `users/<username>/.knbox-trash/` 保存该用户回收站文件和回收站 manifest
 
 ## KYLITH SSO
 
-KN Box 使用 KYLITH 作为 OIDC 登录入口。应用自己的会话、CLI Token、文件归属和存储统计仍然保存在 KN Box 内。
+KN Box 使用 KYLITH 作为唯一登录入口。应用自己的会话、CLI Token、文件归属和存储统计仍然保存在 KN Box 内。
 
 推荐使用 KYLITH Web Client 凭据文件：
 
@@ -137,6 +144,14 @@ http://localhost:6789/auth/callback
 ```
 
 服务端需要能够访问 `KNBOX_KYLITH_ISSUER`，以便加载 OIDC discovery document 和 JWKS。
+
+首次部署时，先让需要成为超级管理员的用户通过 KYLITH 登录一次，再在服务器上执行：
+
+```bash
+KNBOX_DATA_DIR=/data node scripts/set-super-admin.mjs user@example.com
+```
+
+之后超级管理员可以在网页管理页授予或取消普通管理员权限。
 
 ## 命令行工具
 
@@ -215,6 +230,7 @@ http://localhost:6789
 npm install
 npm run dev
 npm run check
+npm test
 npm run build
 ```
 
@@ -239,6 +255,8 @@ src/cli/index.js
 ## 安全与存储说明
 
 KN Box 是文件预览服务，主要用于公司内网中的临时分享和查看。它不是长期归档系统，也不承诺上传文件的长期可靠存储。
+
+生产环境应始终配置 `KNBOX_FILES_PUBLIC_URL`，把公开上传文件放在独立域名下。应用登录和 API 使用 `box.beforeve.com`，公开文件使用 `b.beforeve.com`；不要把会话 Cookie 配置到 `.beforeve.com` 这样的父域。
 
 请遵守公司安全制度，不要上传或分享敏感信息。文件名建议使用英文、数字、短横线和下划线，尽量避免中文、空格和全角符号，以免分享链接在聊天软件中变得不易读或被截断。
 
