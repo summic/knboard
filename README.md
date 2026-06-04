@@ -172,6 +172,9 @@ knbox cd <path>                     切换默认远程目录
 knbox open [path]                   输出文件访问链接
 knbox upload <file-or-dir>          上传文件或目录
 knbox upload <file-or-dir> --to dir 上传到指定目录
+knbox rm <path> [path...]           删除远程文件或目录到回收站
+knbox trash                         查看回收站
+knbox trash empty --yes             清空回收站
 ```
 
 CLI 本地状态默认保存在：
@@ -201,6 +204,14 @@ export KNBOX_URL='https://your-knbox.example.com'
 所有面向 Agent 的命令都支持 `--json`，便于脚本读取结构化结果。CLI Token 由用户在网页端签发；Agent 不应自行创建 Token。
 
 CLI 上传目录时会跳过符号链接、隐藏文件和隐藏目录；只会上传支持的 Markdown、网页和图片文件，并在本地限制目录深度、文件数量、单文件大小和单批总大小。
+
+## 测试
+
+```bash
+npm run test:unit  # 单元测试
+npm run test:api   # API 集成测试
+npm test           # 全量测试
+```
 
 ## Docker
 

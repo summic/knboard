@@ -33,6 +33,8 @@
     "check:types": "tsc --noEmit",
     "check:js": "find src bin scripts test \\( -name '*.js' -o -name '*.mjs' \\) | sort | xargs -n1 node --check",
     "test": "node --test",
+    "test:unit": "node --test test/unit.test.js",
+    "test:api": "node --test test/server.test.js",
     "build": "vite build",
     "start": "node bin/knbox.js serve",
     "tokens:sync": "node scripts/sync-tokens.mjs",

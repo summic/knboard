@@ -56,12 +56,14 @@ export async function runCli(argv) {
   if (command === "cd") return changeDirectory(args);
   if (command === "open") return openRemote(args);
   if (command === "upload") return upload(args);
+  if (command === "rm") return removeRemote(args);
+  if (command === "trash") return trash(args);
 
   throw new CliError(`Unknown command: ${command}`);
 }
 
 export function isClientCommand(command) {
-  return ["auth", "commands", "login", "logout", "whoami", "ls", "cd", "open", "upload", "help"].includes(command);
+  return ["auth", "commands", "login", "logout", "whoami", "ls", "cd", "open", "upload", "rm", "trash", "help"].includes(command);
 }
 
 const CLIENT_HELP = `
@@ -81,6 +83,8 @@ Usage:
   knbox open [path] [--browser] [--json]
                                       Print a file URL or list a directory
   knbox upload <file-or-dir> [options]  Upload a file or directory
+  knbox rm <path> [path...] [--json]    Move remote files or directories to trash
+  knbox trash empty --yes [--json]      Permanently empty your trash
 
 Upload options:
   --to <dir>        Upload into a remote directory
@@ -92,6 +96,7 @@ Global options:
   --json            Print a stable JSON envelope for agents
   --quiet           With --json, print only the raw data field
   --agent           With --help, print machine-readable help
+  --yes             Confirm irreversible commands
   -h, --help        Show this help
 
 Environment:
@@ -283,6 +288,68 @@ async function upload(args) {
   }
 }
 
+async function removeRemote(args) {
+  const config = await getRuntimeConfig(args);
+  const rawTargets = args._.slice(1);
+  if (!rawTargets.length) throw new CliError("Usage: knbox rm <path> [path...]");
+  const paths = rawTargets.map((target) => resolveRemotePath(target, config.cwd));
+  const confirmName = path.posix.basename(paths[0]);
+  if (!confirmName) throw new CliError("Refusing to remove the root directory.");
+  const result = await apiRequest(config, "/api/files", {
+    method: "DELETE",
+    json: { paths, confirmName },
+  });
+  const output = { paths, deleted: result.deleted || 0 };
+  if (args.json) {
+    printJsonOutput(args, output, `${output.deleted} moved to trash`, [
+      { action: "list", cmd: `knbox ls ${shellPath(parentRemotePath(paths[0]))} --json` },
+      { action: "trash", cmd: "knbox trash --json" },
+    ]);
+  } else {
+    console.log(`${output.deleted} moved to trash.`);
+  }
+}
+
+async function trash(args) {
+  const subcommand = args._[1] || "list";
+  if (subcommand === "list") return listTrash(args);
+  if (subcommand === "empty") return emptyRemoteTrash(args);
+  if (subcommand === "help") {
+    console.log("Usage: knbox trash [list|empty --yes]");
+    return;
+  }
+  throw new CliError(`Unknown trash command: ${subcommand}`);
+}
+
+async function listTrash(args) {
+  const config = await getRuntimeConfig(args);
+  const result = await apiRequest(config, "/api/trash");
+  const items = Array.isArray(result.items) ? result.items : [];
+  if (args.json) {
+    printJsonOutput(args, { items }, `${items.length} trash item${items.length === 1 ? "" : "s"}`, [
+      { action: "empty", cmd: "knbox trash empty --yes --json" },
+    ]);
+    return;
+  }
+  console.log("trash");
+  for (const item of items) {
+    const marker = item.kind === "directory" ? "/" : "";
+    console.log(`${item.kind.padEnd(9)} ${item.originalPath}${marker} ${formatBytes(item.totalSize || item.size || 0)}`);
+  }
+}
+
+async function emptyRemoteTrash(args) {
+  const config = await getRuntimeConfig(args);
+  if (!args.yes) throw new CliError("Emptying trash is permanent. Re-run with --yes to confirm.");
+  const result = await apiRequest(config, "/api/trash", { method: "DELETE" });
+  const output = { deleted: result.deleted || 0 };
+  if (args.json) {
+    printJsonOutput(args, output, `${output.deleted} permanently deleted`, [{ action: "list", cmd: "knbox trash --json" }]);
+  } else {
+    console.log(`${output.deleted} permanently deleted.`);
+  }
+}
+
 async function uploadOne(config, filePath, targetRelativePath, conflictMode) {
   const body = new FormData();
   const data = await fs.readFile(filePath);
@@ -452,6 +519,7 @@ function parseClientArgs(argv) {
     else if (value === "--browser") args.browser = true;
     else if (value === "--overwrite") args.overwrite = true;
     else if (value === "--rename") args.rename = true;
+    else if (value === "--yes" || value === "-y") args.yes = true;
     else if (value === "--help" || value === "-h") args.help = true;
     else args._.push(value);
   }
@@ -650,6 +718,21 @@ function commandCatalog() {
       name: "knbox upload <file-or-dir>",
       summary: "Upload a local file or directory and return public URLs.",
       args: ["file-or-dir", "--to <dir>", "--rename", "--overwrite", "--json", "--quiet"],
+    },
+    {
+      name: "knbox rm <path> [path...]",
+      summary: "Move remote files or directories to your trash.",
+      args: ["path", "--json", "--quiet"],
+    },
+    {
+      name: "knbox trash [list]",
+      summary: "List your trash items.",
+      args: ["--json", "--quiet"],
+    },
+    {
+      name: "knbox trash empty",
+      summary: "Permanently empty your trash.",
+      args: ["--yes", "--json", "--quiet"],
     },
   ];
 }

@@ -23,10 +23,14 @@ import { api, AuthRequiredError, type AuthConfig, type FileEntry, type FileSecti
 import { AdminPage } from "./Admin";
 import { Home } from "./Home";
 import { Help } from "./Help";
-import { useUploads, UploadManager } from "./UploadManager";
+import { useUploads, UploadManager, type UploadSourceFile } from "./UploadManager";
 
 type AppView = "files" | "trash" | "help" | "admin";
 type Route = { view: AppView; section: FileSection; dir: string; adminUserId?: number | null };
+type DropHint = { active: boolean; count: number | null };
+type DataTransferItemWithEntry = DataTransferItem & {
+  webkitGetAsEntry?: () => FileSystemEntry | null;
+};
 
 const SECTIONS: Record<string, FileSection> = {
   "~web": "web",
@@ -89,11 +93,72 @@ function parentDir(path: string): string {
   return parts.join("/");
 }
 
+function uploadDestinationLabel(dir: string): string {
+  return dir ? `/${dir}` : "首页";
+}
+
 function fileKindLabel(kind: FileEntry["kind"]): string {
   if (kind === "markdown") return "MD";
   if (kind === "image") return "IMG";
   if (kind === "web") return "WEB";
   return "FILE";
+}
+
+function hasDraggedFiles(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false;
+  if (Array.from(dataTransfer.types).includes("Files")) return true;
+  return Array.from(dataTransfer.items).some((item) => item.kind === "file");
+}
+
+function draggedItemCount(dataTransfer: DataTransfer | null): number | null {
+  if (!dataTransfer) return null;
+  if (dataTransfer.items?.length) return dataTransfer.items.length;
+  if (dataTransfer.files?.length) return dataTransfer.files.length;
+  return null;
+}
+
+async function droppedFiles(dataTransfer: DataTransfer): Promise<File[]> {
+  const items = Array.from(dataTransfer.items).filter((item) => item.kind === "file") as DataTransferItemWithEntry[];
+  const entries = items.map((item) => item.webkitGetAsEntry?.()).filter((entry): entry is FileSystemEntry => Boolean(entry));
+  if (!entries.length) return Array.from(dataTransfer.files);
+
+  const nested = await Promise.all(entries.map((entry) => collectEntryFiles(entry, "")));
+  return nested.flat();
+}
+
+async function collectEntryFiles(entry: FileSystemEntry, parentPath: string): Promise<UploadSourceFile[]> {
+  const relativePath = [parentPath, entry.name].filter(Boolean).join("/");
+  if (entry.isFile) {
+    const file = await fileFromEntry(entry as FileSystemFileEntry);
+    return [withRelativePath(file, relativePath)];
+  }
+  if (!entry.isDirectory) return [];
+  const children = await readDirectoryEntries(entry as FileSystemDirectoryEntry);
+  const nested = await Promise.all(children.map((child) => collectEntryFiles(child, relativePath)));
+  return nested.flat();
+}
+
+function fileFromEntry(entry: FileSystemFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+async function readDirectoryEntries(entry: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
+  const reader = entry.createReader();
+  const entries: FileSystemEntry[] = [];
+  while (true) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+    if (!batch.length) break;
+    entries.push(...batch);
+  }
+  return entries;
+}
+
+function withRelativePath(file: File, relativePath: string): UploadSourceFile {
+  const source = (Object.isExtensible(file)
+    ? file
+    : new File([file], file.name, { type: file.type, lastModified: file.lastModified })) as UploadSourceFile;
+  Object.defineProperty(source, "knboxRelativePath", { value: relativePath, configurable: true });
+  return source;
 }
 
 const SIDEBAR_COLLAPSED_KEY = "knbox.sidebarCollapsed";
@@ -128,6 +193,7 @@ export function App() {
   const [isMobileLayout, setIsMobileLayout] = useState(() => window.matchMedia(MOBILE_SIDEBAR_QUERY).matches);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
+  const [dropHint, setDropHint] = useState<DropHint>({ active: false, count: null });
   const [filesRefreshKey, setFilesRefreshKey] = useState(0);
   const [storage, setStorage] = useState<StorageUsage | null>(null);
   const uploads = useUploads();
@@ -135,6 +201,7 @@ export function App() {
   const folderInput = useRef<HTMLInputElement | null>(null);
   const lastUploadRefresh = useRef("");
   const searchRef = useRef<HTMLDivElement>(null);
+  const dropDepth = useRef(0);
 
   useEffect(() => {
     api.authConfig()
@@ -261,6 +328,11 @@ export function App() {
     if (uploads.items.some((item) => item.status === "done")) setFilesRefreshKey((key) => key + 1);
   }, [uploads.items]);
 
+  useEffect(() => {
+    dropDepth.current = 0;
+    setDropHint({ active: false, count: null });
+  }, [path]);
+
   const logout = async () => {
     await api.logout();
     setUser(null);
@@ -314,6 +386,38 @@ export function App() {
   const goDir = (dir: string) => go(routePath(route.section, dir));
   const goAdminUserDir = (userId: number, dir = "") =>
     go(["~admin", "users", String(userId), normalizeRouteDir(dir)].filter(Boolean).join("/"));
+  const acceptsDropUpload = route.view === "files";
+  const uploadDestination = acceptsDropUpload ? route.dir : "";
+  const dropDestination = uploadDestinationLabel(uploadDestination);
+  const onContentDragEnter = (event: React.DragEvent<HTMLElement>) => {
+    if (!acceptsDropUpload || !hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    dropDepth.current += 1;
+    setDropHint({ active: true, count: draggedItemCount(event.dataTransfer) });
+  };
+  const onContentDragOver = (event: React.DragEvent<HTMLElement>) => {
+    if (!acceptsDropUpload || !hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const onContentDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (!dropHint.active) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dropDepth.current = Math.max(0, dropDepth.current - 1);
+    if (dropDepth.current === 0) setDropHint({ active: false, count: null });
+  };
+  const onContentDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!acceptsDropUpload || !hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dropDepth.current = 0;
+    setDropHint({ active: false, count: null });
+    void droppedFiles(event.dataTransfer).then((files) => uploads.start(files, uploadDestination));
+  };
   const openSearchResult = (entry: FileEntry) => {
     setSearchOpen(false);
     setQuery("");
@@ -451,7 +555,13 @@ export function App() {
       </aside>
       {mobileSidebarOpen && <button className="kb-sidebar-backdrop" aria-label="关闭侧边栏" onClick={() => setMobileSidebarOpen(false)} />}
 
-      <div className="kb-main">
+      <div
+        className={`kb-main ${dropHint.active ? "is-drop-active" : ""}`}
+        onDragEnter={onContentDragEnter}
+        onDragOver={onContentDragOver}
+        onDragLeave={onContentDragLeave}
+        onDrop={onContentDrop}
+      >
         <header className="kb-topbar">
           <button
             className="kb-collapse"
@@ -535,6 +645,18 @@ export function App() {
         <input ref={setFolderRef} className="kb-upload-input" type="file" multiple onChange={onPicked} />
 
         <main className="kb-content">
+          {dropHint.active && (
+            <div className="kb-drop-overlay" aria-hidden>
+              <div className="kb-drop-card">
+                <span className="kb-drop-icon">
+                  <Upload size={30} strokeWidth={2.25} aria-hidden />
+                </span>
+                <strong>松开上传</strong>
+                <span>上传到 {dropDestination}</span>
+                {dropHint.count !== null && <em>{dropHint.count} 个项目</em>}
+              </div>
+            </div>
+          )}
           {route.view === "help" ? (
             <Help />
           ) : route.view === "trash" ? (

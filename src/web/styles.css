@@ -177,7 +177,64 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .kb-search-empty { padding: 14px 10px; color: var(--kn-color-text-tertiary); font-size: var(--kn-text-body-sm); text-align: center; }
 .kb-upload-input { display: none; }
 
-.kb-content { flex: 1; padding: 26px 28px 56px; min-width: 0; }
+.kb-content { position: relative; flex: 1; padding: 26px 28px 56px; min-width: 0; }
+.kb-drop-overlay {
+  position: absolute;
+  top: 132px;
+  right: 18px;
+  bottom: 30px;
+  left: 18px;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 2px dashed color-mix(in oklab, var(--accent) 72%, var(--kn-color-border-default));
+  border-radius: var(--kn-radius-card);
+  background: color-mix(in oklab, var(--kn-color-bg-surface) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 18%, transparent), 0 18px 48px rgba(40, 35, 25, .10);
+  backdrop-filter: blur(2px);
+  animation: kb-drop-in .12s cubic-bezier(.2, 0, 0, 1) both;
+}
+.kb-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: min(320px, calc(100% - 40px));
+  padding: 28px 32px;
+  border: 3px dashed var(--kn-color-green-600);
+  border-radius: var(--kn-radius-card);
+  background: color-mix(in oklab, var(--kn-color-bg-surface) 94%, transparent);
+  color: var(--kn-color-text-secondary);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.kb-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  margin-bottom: 2px;
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--accent) 10%, var(--kn-color-bg-workspace));
+  color: var(--accent);
+  animation: kb-drop-icon-hop .68s cubic-bezier(.34, 1.56, .64, 1) infinite;
+}
+.kb-drop-card strong { color: var(--kb-ink-black); font-family: var(--font-serif); font-size: 26px; font-weight: 600; letter-spacing: 0; }
+.kb-drop-card span { font-size: var(--kn-text-body-sm); }
+.kb-drop-card em {
+  margin-top: 2px;
+  color: var(--kn-color-text-tertiary);
+  font-size: var(--kn-text-caption);
+  font-style: normal;
+}
+@keyframes kb-drop-in { from { opacity: 0; transform: scale(.992); } to { opacity: 1; transform: scale(1); } }
+@keyframes kb-drop-icon-hop {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(-8px); }
+  58% { transform: translateY(3px); }
+  76% { transform: translateY(-3px); }
+}
 
 /* ====================================================================== */
 /* Admin                                                                   */

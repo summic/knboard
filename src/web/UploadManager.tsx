@@ -32,6 +32,7 @@ export type UploadItem = {
 };
 
 export type Uploads = ReturnType<typeof useUploads>;
+export type UploadSourceFile = File & { knboxRelativePath?: string; webkitRelativePath?: string };
 
 const UPLOAD_STATE_KEY = "knbox.uploads";
 const UPLOAD_DB_NAME = "knbox-upload-resume";
@@ -128,7 +129,8 @@ export function useUploads() {
       setOpen(true);
       setCollapsed(false);
       const picked = list.map((f, i) => {
-        const relativePath = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+        const sourceFile = f as UploadSourceFile;
+        const relativePath = sourceFile.knboxRelativePath || sourceFile.webkitRelativePath || f.name;
         const uploadPath = joinUploadPath(baseDir, relativePath);
         const ignored = isIgnoredFolderEntry(f, relativePath);
         const error = ignored ? "已忽略" : validateUploadFile(f, uploadPath);

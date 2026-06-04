@@ -31,6 +31,8 @@ Usage:
   knbox cd <path>              Change the saved remote directory
   knbox open [path]            Print a remote file URL or list a directory
   knbox upload <path>          Upload a local file or directory
+  knbox rm <path> [path...]    Move remote files or directories to trash
+  knbox trash empty --yes      Permanently empty your trash
 
 Options:
   -p, --port <n>    Port to listen on (default 6789, or $PORT)
