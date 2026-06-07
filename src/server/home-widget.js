@@ -25,18 +25,19 @@ export function homeWidgetScript() {
   }
   const text = document.createElement("span");
   text.className = "text";
-  text.textContent = "返回首页";
+  text.textContent = label;
+  if (config.font) text.style.fontFamily = config.font;
   link.append(avatar, text);
   const style = document.createElement("style");
   style.textContent = \`
     :host { position: fixed; left: 18px; bottom: 18px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .wrap { display: inline-flex; align-items: center; gap: 0; width: 42px; height: 42px; padding: 4px; overflow: hidden; border: 1px solid rgba(18, 22, 28, .13); border-radius: 999px; background: rgba(255, 255, 255, .94); color: #171717; text-decoration: none; box-shadow: 0 8px 22px rgba(18, 22, 28, .16); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: width .18s cubic-bezier(.2, 0, 0, 1), border-color .18s ease, background .18s ease, box-shadow .18s ease; }
-    .wrap:hover, .wrap:focus-visible { width: 116px; background: #fff; border-color: rgba(36, 88, 211, .34); box-shadow: 0 10px 26px rgba(18, 22, 28, .18); }
+    .wrap { display: inline-flex; align-items: center; max-width: 300px; padding: 5px; overflow: hidden; border: 1px solid rgba(18, 22, 28, .14); border-radius: 999px; background: rgba(255, 255, 255, .94); color: #171717; text-decoration: none; box-shadow: 0 6px 18px rgba(18, 22, 28, .14); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: border-color .18s ease, background .18s ease, box-shadow .18s ease; }
+    .wrap:hover, .wrap:focus-visible { background: #fff; border-color: rgba(36, 88, 211, .32); box-shadow: 0 10px 26px rgba(18, 22, 28, .18); }
     .avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; overflow: hidden; background: #2458d3; color: #fff; font-size: 13px; font-weight: 700; }
     .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .text { display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; transform: translateX(-4px); font-size: 13px; font-weight: 700; letter-spacing: 0; transition: max-width .18s cubic-bezier(.2, 0, 0, 1), opacity .12s ease, transform .18s cubic-bezier(.2, 0, 0, 1), margin-left .18s cubic-bezier(.2, 0, 0, 1); }
-    .wrap:hover .text, .wrap:focus-visible .text { max-width: 64px; margin-left: 8px; opacity: 1; transform: translateX(0); }
-    @media (max-width: 560px) { :host { left: 12px; bottom: 12px; } .wrap { width: 40px; height: 40px; } .wrap:hover, .wrap:focus-visible { width: 112px; } .avatar { width: 30px; height: 30px; } }
+    .text { display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; opacity: 0; margin-left: 0; font-family: "Songti SC", "Noto Serif SC", "SimSun", Georgia, serif; font-size: 14px; font-weight: 600; letter-spacing: 0; transition: max-width .22s cubic-bezier(.2, 0, 0, 1), opacity .16s ease, margin-left .22s cubic-bezier(.2, 0, 0, 1); }
+    .wrap:hover .text, .wrap:focus-visible .text { max-width: 210px; margin-left: 9px; padding-right: 4px; opacity: 1; }
+    @media (max-width: 560px) { :host { left: 12px; bottom: 12px; } .avatar { width: 30px; height: 30px; } .wrap:hover .text, .wrap:focus-visible .text { max-width: 160px; } }
   \`;
   root.append(style, link);
   document.body.appendChild(host);
