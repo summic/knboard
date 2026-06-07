@@ -749,7 +749,7 @@ async function sendWebThumbnail({ auth, user, publicUrl, filesPublicUrl, rel, re
 }
 
 function renderUserHomepage({ user, items, settings }) {
-  const homepageName = settings?.displayName || user.name || user.username || "个人主页";
+  const homepageName = settings?.displayName || "Untitled";
   const style = settings?.style || "theme-6";
   const title = homepageName;
   const bioText = (settings?.description || "").trim();

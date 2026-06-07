@@ -68,7 +68,7 @@ export function updateHomepageSettings({ db, user, displayName, description, sty
 
 export function normalizeHomepageSettings(row, user) {
   return {
-    displayName: normalizeDisplayName(row?.display_name, user?.name || user?.username || "个人主页"),
+    displayName: normalizeDisplayName(row?.display_name, "Untitled"),
     description: normalizeDescription(row?.description, ""),
     style: normalizeHomepageStyle(row?.style),
     titleFont: normalizeHomepageFont(row?.title_font),
@@ -98,7 +98,7 @@ function normalizeDescription(value, fallback = "") {
 
 function normalizeDisplayName(value, fallback) {
   const text = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
-  return text || String(fallback || "个人主页").trim().slice(0, 80) || "个人主页";
+  return text || String(fallback || "Untitled").trim().slice(0, 80) || "Untitled";
 }
 
 function normalizeBoolean(value, fallback) {
