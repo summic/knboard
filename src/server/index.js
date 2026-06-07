@@ -881,7 +881,7 @@ function renderUserHomepage({ user, items, settings }) {
       ${rows}
       ${count ? `<div class="end-note"><span>The end.</span></div>` : ""}
     </div>
-    <footer>由 <a href="https://github.com/summic/knbox" target="_blank" rel="noreferrer noopener">knbox</a> 提供</footer>
+    <footer>由 <a href="https://box.beforeve.com" target="_blank" rel="noreferrer noopener">knbox</a> 提供</footer>
   </main>
 </body>
 </html>`;

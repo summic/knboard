@@ -1171,12 +1171,12 @@ function ContentEntry({
   onOpen: () => void;
   onVisibilityChange: (visibility: "public" | "private") => void;
 }) {
-  const thumbUrl = entry.thumbnailStatus === "ready" && entry.thumbnailUrl ? absoluteUrl(entry.thumbnailUrl) : "";
   const title = entry.webTitle || entry.name;
   const visibility = entry.visibility === "public" ? "public" : "private";
+  const date = monthDayParts(entry.updatedAt);
   return (
     <article
-      className={`content-item is-${entry.kind}`}
+      className="content-row"
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -1187,25 +1187,16 @@ function ContentEntry({
       role="button"
       tabIndex={0}
     >
-      <div className="content-thumb" aria-hidden>
-        {thumbUrl ? (
-          <img src={thumbUrl} alt="" loading="lazy" />
-        ) : (
-          <EntryIcon entry={entry} size={24} compact />
-        )}
-      </div>
-      <div className="content-main">
-        <div className="content-title-row">
-          <h2 title={title}>{title}</h2>
-          <span className={`content-kind is-${entry.kind}`}>{kindLabel(entry)}</span>
-          <span className={`content-visibility is-${visibility}`}>{visibility === "public" ? "已发布" : "私密"}</span>
-        </div>
-        <p>/{entry.path}</p>
-      </div>
-      <div className="content-meta">
-        <span>{fmtDate(entry.updatedAt)}</span>
-        <span>{fmtBytes(entry.size ?? 0)}</span>
-      </div>
+      {date ? (
+        <time className="content-row-date" dateTime={date.iso}>
+          <span className="content-row-month">{date.month}</span>
+          <span className="content-row-day">{date.day}</span>
+        </time>
+      ) : (
+        <span className="content-row-date" aria-hidden />
+      )}
+      <span className="content-row-title" title={title}>{title}</span>
+      <span className={`content-visibility is-${visibility}`}>{visibility === "public" ? "已发布" : "私密"}</span>
       <button
         className="content-publish-btn"
         disabled={busy}
@@ -1338,6 +1329,15 @@ function fmtBytes(n: number): string {
   const units = ["B", "KB", "MB", "GB"];
   const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
   return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function monthDayParts(value: string): { month: string; day: string; iso: string } | null {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return null;
+  const date = new Date(time);
+  return { month: MONTH_ABBR[date.getMonth()], day: String(date.getDate()), iso: date.toISOString().slice(0, 10) };
 }
 
 function fmtDate(value: string): string {

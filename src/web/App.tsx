@@ -379,8 +379,8 @@ export function App() {
   const goDir = (dir: string) => go(routePath(route.section, dir));
   const goAdminUserDir = (userId: number, dir = "") =>
     go(["~admin", "users", String(userId), normalizeRouteDir(dir)].filter(Boolean).join("/"));
-  const acceptsDropUpload = route.view === "files";
-  const uploadDestination = acceptsDropUpload ? route.dir : "";
+  const acceptsDropUpload = route.view === "files" || route.view === "content";
+  const uploadDestination = route.view === "files" ? route.dir : "";
   const dropDestination = uploadDestinationLabel(uploadDestination);
   const onContentDragEnter = (event: React.DragEvent<HTMLElement>) => {
     if (!acceptsDropUpload || !hasDraggedFiles(event.dataTransfer)) return;
