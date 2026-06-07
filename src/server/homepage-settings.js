@@ -6,10 +6,10 @@ const MAX_DESCRIPTION_LENGTH = 280;
 // Serif presets offered for the homepage title. Each value is a CSS font stack
 // using only system-available fonts (the public homepage ships no web fonts).
 export const HOMEPAGE_FONT_STACKS = {
-  songti: `"Songti SC", "Noto Serif SC", "SimSun", Georgia, "Times New Roman", serif`,
-  georgia: `Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif`,
-  palatino: `"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", "Songti SC", "Noto Serif SC", serif`,
-  kai: `Georgia, "Kaiti SC", "STKaiti", KaiTi, "Songti SC", serif`,
+  songti: `"Songti SC", "Noto Serif SC", "Noto Serif CJK SC", "SimSun", Georgia, "Times New Roman", serif`,
+  georgia: `Georgia, "Songti SC", "Noto Serif SC", "Noto Serif CJK SC", "SimSun", serif`,
+  palatino: `"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", "Songti SC", "Noto Serif SC", "Noto Serif CJK SC", serif`,
+  kai: `Georgia, "Kaiti SC", "STKaiti", KaiTi, "Songti SC", "Noto Serif CJK SC", serif`,
 };
 const VALID_FONTS = new Set(Object.keys(HOMEPAGE_FONT_STACKS));
 

@@ -12,7 +12,7 @@
   --shadow: var(--kn-shadow-card);
   --radius: var(--kn-radius-card);
   /* serif for the wordmark + page titles */
-  --font-serif: "Noto Serif SC", "Songti SC", Georgia, serif;
+  --font-serif: "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", Georgia, serif;
   --kb-ink-black: #111111;
   --kb-header-height: 65px;
   --kb-width-medium: 920px;

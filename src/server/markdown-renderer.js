@@ -110,8 +110,8 @@ function pageStyles() {
       --ink-soft: #7b7568;
       --line: #e4dfd3;
       --accent: oklch(0.5687 0.1602 254.1);
-      --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif;
+      --font-sans: Inter, "Noto Sans CJK SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-serif: "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif;
       --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
       --shadow: 0 14px 40px rgba(36, 31, 23, 0.08);
       --prose-size: 17px;
