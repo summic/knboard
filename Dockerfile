@@ -9,7 +9,8 @@ WORKDIR /app
 
 # Install + build the bundled web app at image-build time.
 COPY package*.json ./
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont \
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-cjk font-noto-cjk-extra \
+  && fc-cache -f \
   && apk add --no-cache --virtual .build-deps python3 make g++ \
   && npm ci --ignore-scripts \
   && npm rebuild better-sqlite3 \
