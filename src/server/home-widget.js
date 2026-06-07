@@ -1,3 +1,5 @@
+import { homepageFontStack } from "./homepage-settings.js";
+
 export function homeWidgetScript() {
   return `(() => {
   const config = window.__KNBOX_HOME_WIDGET__;
@@ -7,8 +9,9 @@ export function homeWidgetScript() {
   const link = document.createElement("a");
   link.className = "wrap";
   link.href = config.homeUrl || "/";
-  link.title = "返回首页";
-  link.setAttribute("aria-label", "返回首页");
+  const label = config.title || config.name || "返回主页";
+  link.title = label;
+  link.setAttribute("aria-label", label);
   const avatar = document.createElement("span");
   avatar.className = "avatar";
   if (config.avatarUrl) {
@@ -59,6 +62,8 @@ export function homeWidgetConfig({ user, storageName, settings }) {
   return {
     enabled: true,
     name,
+    title: settings?.displayName || name,
+    font: homepageFontStack(settings?.titleFont),
     initial: name.slice(0, 1).toUpperCase(),
     avatarUrl: user.avatarUrl || null,
     homeUrl: `/u/${encodeURIComponent(storageName || user.username)}`,
