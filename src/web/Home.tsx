@@ -13,10 +13,11 @@ import {
   Image,
   LayoutGrid,
   List,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
-import { api, type FileEntry, type FileListing, type FileSection } from "./api";
+import { api, type FileEntry, type FileListing, type FileSection, type HomepageFont, type HomepageTheme, type User } from "./api";
 import { absoluteUrl } from "./url";
 
 type Props = {
@@ -36,11 +37,28 @@ type Props = {
 };
 
 type ViewMode = "list" | "grid";
+type ContentViewMode = "list" | "cards";
 
 const FILE_VIEW_KEY = "knbox.fileView";
+const CONTENT_VIEW_KEY = "knbox.contentView";
+const HOMEPAGE_THEMES: Array<{ value: HomepageTheme; label: string; color: string }> = [
+  { value: "theme-1", label: "青绿", color: "oklch(0.9802 0.0074 151.89)" },
+  { value: "theme-2", label: "淡紫", color: "oklch(0.9822 0.0118 313.22)" },
+  { value: "theme-3", label: "米白", color: "oklch(0.9856 0.0084 56.32)" },
+  { value: "theme-4", label: "浅蓝", color: "oklch(0.9808 0.0091 258.34)" },
+  { value: "theme-5", label: "暖粉", color: "oklch(0.9727 0.0119 17.36)" },
+  { value: "theme-6", label: "中性", color: "oklch(0.9731 0 0)" },
+];
+const HOMEPAGE_FONTS: Array<{ value: HomepageFont; label: string; stack: string }> = [
+  { value: "songti", label: "宋体", stack: `"Songti SC","Noto Serif SC","SimSun",Georgia,serif` },
+  { value: "georgia", label: "Georgia", stack: `Georgia,"Songti SC","Noto Serif SC",serif` },
+  { value: "palatino", label: "旧体", stack: `"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua","Songti SC",serif` },
+  { value: "kai", label: "楷体", stack: `Georgia,"Kaiti SC","STKaiti",KaiTi,"Songti SC",serif` },
+];
 const SECTION_META: Record<FileSection, { title: string; empty: string }> = {
-  all: { title: "首页", empty: "这里还没有任何内容。" },
-  web: { title: "网页", empty: "还没有网页或 Markdown 文件。" },
+  all: { title: "文件夹", empty: "这里还没有任何内容。" },
+  web: { title: "网页", empty: "还没有网页。" },
+  markdown: { title: "文档", empty: "还没有 Markdown 文档。" },
   images: { title: "图片", empty: "还没有图片。" },
   other: { title: "其他", empty: "还没有其他文件。" },
 };
@@ -53,6 +71,346 @@ function readStoredView(): ViewMode {
     /* ignore unavailable localStorage */
   }
   return "grid";
+}
+
+function readStoredContentView(): ContentViewMode {
+  try {
+    const value = window.localStorage.getItem(CONTENT_VIEW_KEY);
+    if (value === "list" || value === "cards") return value;
+  } catch {
+    /* ignore unavailable localStorage */
+  }
+  return "cards";
+}
+
+export function ContentHome({
+  user,
+  query,
+  refreshKey,
+  onPreviewOpen,
+}: {
+  user: User;
+  query: string;
+  refreshKey: number;
+  onPreviewOpen?: () => void;
+}) {
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [preview, setPreview] = useState<FileEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [visibilityBusyPath, setVisibilityBusyPath] = useState<string | null>(null);
+  const [contentView, setContentView] = useState<ContentViewMode>(() => readStoredContentView());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsName, setSettingsName] = useState(user.name || user.username);
+  const [settingsDescription, setSettingsDescription] = useState("");
+  const [settingsTheme, setSettingsTheme] = useState<HomepageTheme>("theme-6");
+  const [settingsFont, setSettingsFont] = useState<HomepageFont>("songti");
+  const [settingsShowHomeLink, setSettingsShowHomeLink] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
+  useEffect(() => {
+    let canceled = false;
+    setLoading(true);
+    setError(null);
+    api
+      .listContent(200)
+      .then((res) => {
+        if (!canceled) setEntries(res.items);
+      })
+      .catch((err: unknown) => {
+        if (!canceled) setError(err instanceof Error ? err.message : "内容列表加载失败");
+      })
+      .finally(() => {
+        if (!canceled) setLoading(false);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [refreshKey]);
+
+  useEffect(() => {
+    let canceled = false;
+    api
+      .homepageSettings()
+      .then((res) => {
+        if (canceled) return;
+        setSettingsName(res.settings.displayName);
+        setSettingsDescription(res.settings.description);
+        setSettingsTheme(res.settings.style);
+        setSettingsFont(res.settings.titleFont);
+        setSettingsShowHomeLink(res.settings.showHomeLink);
+      })
+      .catch((err: unknown) => {
+        if (!canceled) setSettingsError(err instanceof Error ? err.message : "主页设置加载失败");
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q
+      ? entries.filter((item) => `${item.name} ${item.webTitle || ""} ${item.path}`.toLowerCase().includes(q))
+      : entries;
+  }, [entries, query]);
+
+  const grouped = useMemo(() => groupContentByDate(filtered), [filtered]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CONTENT_VIEW_KEY, contentView);
+    } catch {
+      /* ignore unavailable localStorage */
+    }
+  }, [contentView]);
+
+  const openEntry = (entry: FileEntry) => {
+    onPreviewOpen?.();
+    setPreview(entry);
+  };
+
+  const setEntryVisibility = async (entry: FileEntry, visibility: "public" | "private") => {
+    setVisibilityBusyPath(entry.path);
+    setError(null);
+    try {
+      const result = await api.setVisibility(entry.path, visibility);
+      setEntries((current) => current.map((item) => (item.path === result.item.path ? result.item : item)));
+      setPreview((current) => (current?.path === result.item.path ? result.item : current));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "发布状态更新失败");
+    } finally {
+      setVisibilityBusyPath(null);
+    }
+  };
+
+  const saveHomepageSettings = async () => {
+    setSettingsSaving(true);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const result = await api.updateHomepageSettings({
+        displayName: settingsName,
+        description: settingsDescription,
+        style: settingsTheme,
+        titleFont: settingsFont,
+        showHomeLink: settingsShowHomeLink,
+      });
+      setSettingsName(result.settings.displayName);
+      setSettingsDescription(result.settings.description);
+      setSettingsTheme(result.settings.style);
+      setSettingsFont(result.settings.titleFont);
+      setSettingsShowHomeLink(result.settings.showHomeLink);
+      setSettingsOpen(false);
+    } catch (err: unknown) {
+      setSettingsError(err instanceof Error ? err.message : "主页设置保存失败");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const saveHomepageTheme = async (theme: HomepageTheme) => {
+    setSettingsTheme(theme);
+    setSettingsSaving(true);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const result = await api.updateHomepageSettings({
+        displayName: settingsName,
+        description: settingsDescription,
+        style: theme,
+        titleFont: settingsFont,
+        showHomeLink: settingsShowHomeLink,
+      });
+      setSettingsName(result.settings.displayName);
+      setSettingsDescription(result.settings.description);
+      setSettingsTheme(result.settings.style);
+      setSettingsFont(result.settings.titleFont);
+      setSettingsShowHomeLink(result.settings.showHomeLink);
+      setSettingsMessage("主题已保存");
+    } catch (err: unknown) {
+      setSettingsError(err instanceof Error ? err.message : "主题保存失败");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  return (
+    <div className={`fm-shell ${preview ? "has-preview" : ""}`}>
+      <section className="fm content-home">
+        <div className="fm-head">
+          <div className="fm-head-main">
+            <h1 className="fm-title">全部内容</h1>
+            <p className="fm-desc">按最近更新排列的文档和网页。</p>
+          </div>
+          <div className="content-home-actions">
+            <a className="content-home-link" href={`/u/${encodeURIComponent(user.username)}`} target="_blank" rel="noreferrer">
+              个人主页
+            </a>
+            <button className="content-home-settings" type="button" title="主页设置" aria-label="主页设置" onClick={() => setSettingsOpen(true)}>
+              <Settings size={16} aria-hidden />
+            </button>
+          </div>
+        </div>
+
+        <div className="fm-toolbar">
+          <span className="fm-count">{filtered.length} 篇内容</span>
+          <div className="fm-view content-view-toggle" aria-label="显示方式">
+            <button
+              className={`fm-view-btn ${contentView === "cards" ? "is-active" : ""}`}
+              onClick={() => setContentView("cards")}
+              title="卡片模式"
+            >
+              <LayoutGrid size={16} aria-hidden />
+            </button>
+            <button
+              className={`fm-view-btn ${contentView === "list" ? "is-active" : ""}`}
+              onClick={() => setContentView("list")}
+              title="列表模式"
+            >
+              <List size={16} aria-hidden />
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="fm-empty">
+            <File size={28} aria-hidden />
+            <p>正在加载内容...</p>
+          </div>
+        ) : error ? (
+          <div className="fm-empty">
+            <File size={28} aria-hidden />
+            <p>{error}</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className={`fm-empty ${!query.trim() ? "has-guide" : ""}`}>
+            <FileText size={28} aria-hidden />
+            <p>{query.trim() ? `没有匹配「${query.trim()}」的内容。` : "这里还没有发布内容。"}</p>
+            {!query.trim() && <EmptyGuide />}
+          </div>
+        ) : (
+          <div className={`content-sections is-${contentView}`}>
+            {grouped.map((group) => (
+              <section className="content-section" key={group.key}>
+                <SectionDivider label={group.label} />
+                <div className={contentView === "cards" ? "content-card-grid" : "content-list"}>
+                  {group.items.map((entry) => contentView === "cards" ? (
+                    <ContentCard
+                      key={entry.path}
+                      entry={entry}
+                      busy={visibilityBusyPath === entry.path}
+                      onOpen={() => openEntry(entry)}
+                      onVisibilityChange={(visibility) => void setEntryVisibility(entry, visibility)}
+                    />
+                  ) : (
+                    <ContentEntry
+                      key={entry.path}
+                      entry={entry}
+                      busy={visibilityBusyPath === entry.path}
+                      onOpen={() => openEntry(entry)}
+                      onVisibilityChange={(visibility) => void setEntryVisibility(entry, visibility)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {preview && <PreviewPanel entry={preview} onClose={() => setPreview(null)} />}
+      {settingsOpen && (
+        <div className="fm-dialog-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
+          <form
+            className="fm-dialog homepage-settings-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveHomepageSettings();
+            }}
+          >
+            <h2>主页设置</h2>
+            <label className="fm-dialog-field">
+              <span>主页名称</span>
+              <input value={settingsName} maxLength={80} onChange={(event) => setSettingsName(event.target.value)} />
+            </label>
+            <label className="fm-dialog-field">
+              <span>简介（选填，留空则不显示）</span>
+              <textarea
+                className="homepage-description-input"
+                value={settingsDescription}
+                maxLength={280}
+                rows={3}
+                placeholder="一句话介绍你自己，或这个主页分享的是什么。"
+                onChange={(event) => setSettingsDescription(event.target.value)}
+              />
+            </label>
+            <div className="fm-dialog-field">
+              <span>标题字体</span>
+              <div className="homepage-font-grid">
+                {HOMEPAGE_FONTS.map((font) => (
+                  <button
+                    key={font.value}
+                    className={`homepage-font-choice ${settingsFont === font.value ? "is-active" : ""}`}
+                    type="button"
+                    disabled={settingsSaving}
+                    onClick={() => setSettingsFont(font.value)}
+                  >
+                    <span className="homepage-font-sample" style={{ fontFamily: font.stack }} aria-hidden>
+                      永 Aa
+                    </span>
+                    <span className="homepage-font-label">{font.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="fm-dialog-field">
+              <span>主题</span>
+              <div className="homepage-theme-grid">
+                {HOMEPAGE_THEMES.map((theme) => (
+                  <button
+                    key={theme.value}
+                    className={`homepage-theme-choice ${settingsTheme === theme.value ? "is-active" : ""}`}
+                    type="button"
+                    disabled={settingsSaving}
+                    onClick={() => void saveHomepageTheme(theme.value)}
+                  >
+                    <span className="homepage-theme-swatch" style={{ backgroundColor: theme.color }} aria-hidden />
+                    <span>{theme.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="homepage-toggle">
+              <input
+                type="checkbox"
+                checked={settingsShowHomeLink}
+                disabled={settingsSaving}
+                onChange={(event) => setSettingsShowHomeLink(event.target.checked)}
+              />
+              <span>
+                <strong>显示文章左下角的首页链接</strong>
+                <em>公开 Markdown 和网页会显示头像与 Home，点击回到个人主页。</em>
+              </span>
+            </label>
+            {settingsError && <div className="fm-dialog-error">{settingsError}</div>}
+            {settingsMessage && <div className="fm-dialog-message">{settingsMessage}</div>}
+            <div className="fm-dialog-actions">
+              <button type="button" onClick={() => setSettingsOpen(false)} disabled={settingsSaving}>
+                取消
+              </button>
+              <button className="is-primary" type="submit" disabled={settingsSaving}>
+                {settingsSaving ? "保存中" : "保存"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Home({
@@ -129,7 +487,9 @@ export function Home({
   const entries = useMemo(() => {
     const items = listing?.items ?? [];
     const q = query.trim().toLowerCase();
-    return q ? items.filter((item) => item.name.toLowerCase().includes(q)) : items;
+    return q
+      ? items.filter((item) => `${item.name} ${item.webTitle || ""} ${item.path}`.toLowerCase().includes(q))
+      : items;
   }, [listing, query]);
 
   useEffect(() => {
@@ -322,7 +682,7 @@ export function Home({
               {checkedCount === 1 ? "删除" : `删除 ${checkedCount} 个项目`}
             </button>
           )}
-          <div className="fm-view">
+          {section !== "web" && section !== "markdown" && <div className="fm-view">
             <button
               className={`fm-view-btn ${view === "grid" ? "is-active" : ""}`}
               onClick={() => setView("grid")}
@@ -337,7 +697,7 @@ export function Home({
             >
               <List size={16} aria-hidden />
             </button>
-          </div>
+          </div>}
         </div>
 
         {error ? (
@@ -350,6 +710,32 @@ export function Home({
             <Folder size={28} aria-hidden />
             <p>{query.trim() ? `没有匹配「${query.trim()}」的项目。` : meta.empty}</p>
             {!readOnly && section === "all" && !currentDir && !query.trim() && <EmptyGuide />}
+          </div>
+        ) : section === "markdown" ? (
+          <div className="fm-doc-list">
+            {entries.map((entry) => (
+              <DocumentEntry
+                key={entry.path}
+                entry={entry}
+                checked={!readOnly && checkedPaths.has(entry.path)}
+                selectable={!readOnly}
+                onToggleChecked={() => toggleChecked(entry)}
+                onOpen={() => openEntry(entry)}
+              />
+            ))}
+          </div>
+        ) : section === "web" ? (
+          <div className="fm-web-grid">
+            {entries.map((entry) => (
+              <WebEntryCard
+                key={entry.path}
+                entry={entry}
+                checked={!readOnly && checkedPaths.has(entry.path)}
+                selectable={!readOnly}
+                onToggleChecked={() => toggleChecked(entry)}
+                onOpen={() => openEntry(entry)}
+              />
+            ))}
           </div>
         ) : view === "list" ? (
           <div className="fm-list">
@@ -593,6 +979,280 @@ function EntryCard({
   );
 }
 
+function DocumentEntry({
+  entry,
+  checked,
+  selectable = true,
+  onToggleChecked,
+  onOpen,
+}: {
+  entry: FileEntry;
+  checked: boolean;
+  selectable?: boolean;
+  onToggleChecked: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <article
+      className={`fm-doc-item ${checked ? "is-checked" : ""}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      {selectable && (
+        <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
+          <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${entry.name}`} />
+        </label>
+      )}
+      <EntryIcon entry={entry} size={22} compact />
+      <div className="fm-doc-main">
+        <h2>{entry.name}</h2>
+        <p>/{entry.path}</p>
+      </div>
+      <div className="fm-doc-meta">
+        <span>{kindLabel(entry)}</span>
+        <span>{entry.kind === "directory" ? "" : fmtBytes(entry.size ?? 0)}</span>
+        <span>{fmtDate(entry.updatedAt)}</span>
+      </div>
+    </article>
+  );
+}
+
+function WebEntryCard({
+  entry,
+  checked,
+  selectable = true,
+  onToggleChecked,
+  onOpen,
+}: {
+  entry: FileEntry;
+  checked: boolean;
+  selectable?: boolean;
+  onToggleChecked: () => void;
+  onOpen: () => void;
+}) {
+  const thumbUrl = entry.thumbnailStatus === "ready" && entry.thumbnailUrl ? absoluteUrl(entry.thumbnailUrl) : "";
+  const hostLabel = entry.url ? new URL(absoluteUrl(entry.url) || "http://localhost").pathname : `/${entry.path}`;
+  const title = entry.webTitle || entry.name;
+  return (
+    <article
+      className={`fm-web-card ${checked ? "is-checked" : ""}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      {selectable && (
+        <label className="fm-entry-check" onClick={(event) => event.stopPropagation()}>
+          <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`选择 ${title}`} />
+        </label>
+      )}
+      <div className="fm-browser">
+        <div className="fm-browser-bar">
+          <span />
+          <span />
+          <span />
+          <em>{hostLabel}</em>
+        </div>
+        <div className="fm-browser-shot">
+          {entry.kind === "directory" ? (
+            <div className="fm-browser-placeholder">
+              <FolderOpen size={32} aria-hidden />
+              <span>网页目录</span>
+            </div>
+          ) : thumbUrl ? (
+            <img src={thumbUrl} alt="" loading="lazy" />
+          ) : (
+            <div className="fm-browser-placeholder">
+              <Globe size={32} aria-hidden />
+              <span>{entry.thumbnailStatus === "pending" ? "缩略图生成中" : "暂无缩略图"}</span>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="fm-web-info">
+        <h2 title={title}>{title}</h2>
+        <p>/{entry.path}</p>
+      </div>
+    </article>
+  );
+}
+
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="content-section-divider">
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function ContentCard({
+  entry,
+  busy,
+  onOpen,
+  onVisibilityChange,
+}: {
+  entry: FileEntry;
+  busy: boolean;
+  onOpen: () => void;
+  onVisibilityChange: (visibility: "public" | "private") => void;
+}) {
+  const thumbUrl = entry.thumbnailStatus === "ready" && entry.thumbnailUrl ? absoluteUrl(entry.thumbnailUrl) : "";
+  const title = entry.webTitle || entry.name;
+  const visibility = entry.visibility === "public" ? "public" : "private";
+  return (
+    <article
+      className={`content-card is-${entry.kind}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="content-card-shot" aria-hidden>
+        {thumbUrl ? (
+          <img src={thumbUrl} alt="" loading="lazy" />
+        ) : (
+          <div className="content-card-placeholder">
+            <EntryIcon entry={entry} size={34} />
+            <span>{entry.thumbnailStatus === "pending" ? "缩略图生成中" : kindLabel(entry)}</span>
+          </div>
+        )}
+      </div>
+      <div className="content-card-body">
+        <div className="content-title-row">
+          <h2 title={title}>{title}</h2>
+          <span className={`content-kind is-${entry.kind}`}>{kindLabel(entry)}</span>
+        </div>
+        <p>/{entry.path}</p>
+        <div className="content-card-foot">
+          <span className={`content-visibility is-${visibility}`}>{visibility === "public" ? "已发布" : "私密"}</span>
+          <span>{fmtDate(entry.updatedAt)}</span>
+          <span>{fmtBytes(entry.size ?? 0)}</span>
+        </div>
+      </div>
+      <button
+        className="content-publish-btn content-card-action"
+        disabled={busy}
+        onClick={(event) => {
+          event.stopPropagation();
+          onVisibilityChange(visibility === "public" ? "private" : "public");
+        }}
+      >
+        {busy ? "更新中" : visibility === "public" ? "设为私密" : "发布"}
+      </button>
+    </article>
+  );
+}
+
+function ContentEntry({
+  entry,
+  busy,
+  onOpen,
+  onVisibilityChange,
+}: {
+  entry: FileEntry;
+  busy: boolean;
+  onOpen: () => void;
+  onVisibilityChange: (visibility: "public" | "private") => void;
+}) {
+  const thumbUrl = entry.thumbnailStatus === "ready" && entry.thumbnailUrl ? absoluteUrl(entry.thumbnailUrl) : "";
+  const title = entry.webTitle || entry.name;
+  const visibility = entry.visibility === "public" ? "public" : "private";
+  return (
+    <article
+      className={`content-item is-${entry.kind}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="content-thumb" aria-hidden>
+        {thumbUrl ? (
+          <img src={thumbUrl} alt="" loading="lazy" />
+        ) : (
+          <EntryIcon entry={entry} size={24} compact />
+        )}
+      </div>
+      <div className="content-main">
+        <div className="content-title-row">
+          <h2 title={title}>{title}</h2>
+          <span className={`content-kind is-${entry.kind}`}>{kindLabel(entry)}</span>
+          <span className={`content-visibility is-${visibility}`}>{visibility === "public" ? "已发布" : "私密"}</span>
+        </div>
+        <p>/{entry.path}</p>
+      </div>
+      <div className="content-meta">
+        <span>{fmtDate(entry.updatedAt)}</span>
+        <span>{fmtBytes(entry.size ?? 0)}</span>
+      </div>
+      <button
+        className="content-publish-btn"
+        disabled={busy}
+        onClick={(event) => {
+          event.stopPropagation();
+          onVisibilityChange(visibility === "public" ? "private" : "public");
+        }}
+      >
+        {busy ? "更新中" : visibility === "public" ? "设为私密" : "发布"}
+      </button>
+    </article>
+  );
+}
+
+function groupContentByDate(items: FileEntry[]): Array<{ key: string; label: string; items: FileEntry[] }> {
+  const now = new Date();
+  const nowTime = now.getTime();
+  const currentYear = now.getFullYear();
+  const recentDays = 7;
+  const monthAfterRecentDays = 37;
+  const groups: Array<{ key: string; label: string; items: FileEntry[] }> = [];
+  for (const item of items) {
+    const date = new Date(item.updatedAt);
+    const time = date.getTime();
+    const ageDays = Number.isFinite(time) ? Math.max(0, Math.floor((nowTime - time) / 86400000)) : Infinity;
+    let key = "older";
+    let label = "更早";
+    if (ageDays < recentDays) {
+      key = "recent";
+      label = "最近文章";
+    } else if (ageDays < monthAfterRecentDays) {
+      key = "week";
+      label = "一周前";
+    } else if (Number.isFinite(time) && date.getFullYear() !== currentYear) {
+      key = `year-${date.getFullYear()}`;
+      label = String(date.getFullYear());
+    }
+    const last = groups[groups.length - 1];
+    if (last?.key === key) {
+      last.items.push(item);
+    } else {
+      groups.push({ key, label, items: [item] });
+    }
+  }
+  return groups;
+}
+
 function EntryIcon({ entry, size, compact = false }: { entry: FileEntry; size: number; compact?: boolean }) {
   const className = compact ? `fm-ic ${iconClass(entry)}` : `fm-card-icon ${iconClass(entry)}`;
   const props = { size, "aria-hidden": true };
@@ -668,7 +1328,7 @@ function iconClass(entry: FileEntry) {
 function kindLabel(entry: FileEntry) {
   if (entry.kind === "directory") return `${entry.fileCount ?? 0} 个文件`;
   if (entry.kind === "image") return "图片";
-  if (entry.kind === "markdown") return "Markdown";
+  if (entry.kind === "markdown") return "文档";
   if (entry.kind === "web") return "网页";
   return "其他";
 }
@@ -678,4 +1338,15 @@ function fmtBytes(n: number): string {
   const units = ["B", "KB", "MB", "GB"];
   const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
   return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+function fmtDate(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(time));
 }

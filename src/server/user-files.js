@@ -10,6 +10,11 @@ import {
   MAX_WALK_ITEMS,
   statusError,
 } from "./storage-policy.js";
+import {
+  isWebPagePath,
+  removeWebThumbnail,
+  webThumbnailInfo,
+} from "./web-thumbnails.js";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".ico", ".bmp"]);
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown", ".mdx"]);
@@ -17,8 +22,17 @@ const WEB_EXTENSIONS = new Set([".html", ".htm", ".css", ".js", ".mjs", ".cjs", 
 const TRASH_DIR = ".knbox-trash";
 const TRASH_ITEMS_DIR = "items";
 const TRASH_MANIFEST = "manifest.json";
+const HTML_TITLE_ENTITY_RE = /&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi;
 
-export async function listUserFiles({ filesDir, publicBasePath, dir = "", type = "all" }) {
+export async function listUserFiles({
+  filesDir,
+  publicBasePath,
+  thumbnailBasePath,
+  onWebThumbnailNeeded,
+  visibilityForPaths,
+  dir = "",
+  type = "all",
+}) {
   const root = path.resolve(filesDir);
   const relDir = safeUserRelativePath(dir, { allowEmpty: true });
   const currentDir = relDir ? path.resolve(root, relDir) : root;
@@ -46,12 +60,14 @@ export async function listUserFiles({ filesDir, publicBasePath, dir = "", type =
         const contains = await directoryContainsType(abs, type);
         if (!contains) continue;
       }
-      items.push(fileItem({
+      items.push(await fileItem({
         name: entry.name,
         rel: childRel,
         stat: childStat,
         kind: "directory",
         publicBasePath,
+        thumbnailBasePath,
+        onWebThumbnailNeeded,
         fileCount: await directoryFileCount(abs),
       }));
       continue;
@@ -60,7 +76,16 @@ export async function listUserFiles({ filesDir, publicBasePath, dir = "", type =
     if (!entry.isFile()) continue;
     const kind = fileKind(entry.name);
     if (!matchesType(kind, type)) continue;
-    items.push(fileItem({ name: entry.name, rel: childRel, stat: childStat, kind, publicBasePath }));
+    items.push(await fileItem({
+      name: entry.name,
+      rel: childRel,
+      stat: childStat,
+      kind,
+      filesDir: root,
+      publicBasePath,
+      thumbnailBasePath,
+      onWebThumbnailNeeded,
+    }));
   }
 
   items.sort((a, b) => {
@@ -69,6 +94,8 @@ export async function listUserFiles({ filesDir, publicBasePath, dir = "", type =
     return a.name.localeCompare(b.name, "zh-Hans-CN", { numeric: true, sensitivity: "base" });
   });
 
+  await applyContentVisibility(items, { visibilityForPaths });
+
   return {
     dir: relDir,
     parent: parentPath(relDir),
@@ -76,7 +103,7 @@ export async function listUserFiles({ filesDir, publicBasePath, dir = "", type =
   };
 }
 
-export async function getUserFileEntry({ filesDir, publicBasePath, target = "" }) {
+export async function getUserFileEntry({ filesDir, publicBasePath, thumbnailBasePath, onWebThumbnailNeeded, visibilityForPaths, target = "" }) {
   const root = path.resolve(filesDir);
   const rel = safeUserRelativePath(target, { allowEmpty: true });
   const abs = rel ? path.resolve(root, rel) : root;
@@ -86,7 +113,7 @@ export async function getUserFileEntry({ filesDir, publicBasePath, target = "" }
   const stat = await fs.stat(abs).catch(() => null);
   if (!stat) return null;
   if (stat.isDirectory()) {
-    return fileItem({
+    const item = await fileItem({
       name: rel ? path.basename(rel) : "",
       rel,
       stat,
@@ -94,15 +121,22 @@ export async function getUserFileEntry({ filesDir, publicBasePath, target = "" }
       publicBasePath,
       fileCount: await directoryFileCount(abs),
     });
+    await applyContentVisibility([item], { visibilityForPaths });
+    return item;
   }
   if (!stat.isFile()) return null;
-  return fileItem({
+  const item = await fileItem({
     name: path.basename(rel),
     rel,
     stat,
     kind: fileKind(rel),
+    filesDir: root,
     publicBasePath,
+    thumbnailBasePath,
+    onWebThumbnailNeeded,
   });
+  await applyContentVisibility([item], { visibilityForPaths });
+  return item;
 }
 
 export async function deleteUserFiles({ filesDir, paths, confirmName }) {
@@ -137,6 +171,7 @@ export async function deleteUserFiles({ filesDir, paths, confirmName }) {
     const size = stat.isDirectory() ? await directorySize(target) : stat.size;
     const fileCount = stat.isDirectory() ? await directoryFileCount(target) : undefined;
     await movePath(target, trashTarget);
+    if (stat.isFile()) await removeWebThumbnail({ filesDir: root, rel }).catch(() => {});
     manifest.items.unshift({
       id,
       name,
@@ -292,16 +327,57 @@ export async function getUserStorageUsage({ filesDir, quotaBytes }) {
   };
 }
 
-export async function searchUserFiles({ filesDir, publicBasePath, query, limit = 10 }) {
+export async function searchUserFiles({ filesDir, publicBasePath, thumbnailBasePath, onWebThumbnailNeeded, visibilityForPaths, query, limit = 10 }) {
   const root = path.resolve(filesDir);
   await fs.mkdir(root, { recursive: true });
   const q = String(query || "").trim().toLowerCase();
   if (!q) return { items: [] };
 
   const items = [];
-  await collectSearchItems({ root, dir: root, relDir: "", publicBasePath, q, items, budget: walkBudget() });
+  await collectSearchItems({
+    root,
+    dir: root,
+    relDir: "",
+    publicBasePath,
+    thumbnailBasePath,
+    onWebThumbnailNeeded,
+    q,
+    items,
+    budget: walkBudget(),
+  });
   items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  await applyContentVisibility(items, { visibilityForPaths });
   return { items: items.slice(0, Math.max(1, Math.min(Number(limit) || 10, 20))) };
+}
+
+export async function listPublishedContent({
+  filesDir,
+  publicBasePath,
+  thumbnailBasePath,
+  onWebThumbnailNeeded,
+  visibilityForPaths,
+  includePrivate = true,
+  limit = 100,
+}) {
+  const root = path.resolve(filesDir);
+  await fs.mkdir(root, { recursive: true });
+
+  const items = [];
+  await collectPublishedItems({
+    root,
+    dir: root,
+    relDir: "",
+    publicBasePath,
+    thumbnailBasePath,
+    onWebThumbnailNeeded,
+    items,
+    budget: walkBudget(),
+  });
+
+  items.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  await applyContentVisibility(items, { visibilityForPaths });
+  const visibleItems = includePrivate ? items : items.filter((item) => item.visibility === "public");
+  return { items: visibleItems.slice(0, Math.max(1, Math.min(Number(limit) || 100, 200))) };
 }
 
 export function safeUserRelativePath(value, { allowEmpty = false } = {}) {
@@ -329,9 +405,19 @@ function safeFolderName(value) {
   return raw;
 }
 
-function fileItem({ name, rel, stat, kind, publicBasePath, fileCount }) {
+async function fileItem({
+  name,
+  rel,
+  stat,
+  kind,
+  filesDir,
+  publicBasePath,
+  thumbnailBasePath,
+  onWebThumbnailNeeded,
+  fileCount,
+}) {
   const encoded = rel.split("/").map(encodeURIComponent).join("/");
-  return {
+  const item = {
     name,
     path: rel,
     kind,
@@ -340,6 +426,67 @@ function fileItem({ name, rel, stat, kind, publicBasePath, fileCount }) {
     updatedAt: stat.mtime.toISOString(),
     url: kind === "directory" ? null : `${publicBasePath}/${encoded}`,
   };
+  if (filesDir && kind === "web" && isWebPagePath(rel)) {
+    const webTitle = await readWebPageTitle({ filesDir, rel });
+    if (webTitle) item.webTitle = webTitle;
+  }
+  const thumbnail = filesDir && (kind === "web" || kind === "markdown")
+    ? await webThumbnailInfo({ filesDir, rel, sourceStat: stat, thumbnailBasePath })
+    : null;
+  if (thumbnail) {
+    item.thumbnailUrl = thumbnail.url;
+    item.thumbnailStatus = thumbnail.status;
+    item.thumbnailUpdatedAt = thumbnail.updatedAt;
+    if (thumbnail.status !== "ready" && typeof onWebThumbnailNeeded === "function" && isWebPagePath(rel)) {
+      onWebThumbnailNeeded(rel, item.url);
+    }
+  }
+  return item;
+}
+
+async function applyContentVisibility(items, { visibilityForPaths } = {}) {
+  const contentItems = items.filter((item) => item.kind === "markdown" || (item.kind === "web" && isWebPagePath(item.path)));
+  if (!contentItems.length) return;
+  const paths = contentItems.map((item) => item.path);
+  const map = typeof visibilityForPaths === "function" ? await visibilityForPaths(paths) : new Map();
+  for (const item of contentItems) {
+    item.visibility = map.get(item.path) || "private";
+  }
+}
+
+async function readWebPageTitle({ filesDir, rel }) {
+  const root = path.resolve(filesDir);
+  const abs = path.resolve(root, rel);
+  assertInside(root, abs);
+  const html = await fs.readFile(abs, "utf8").catch(() => "");
+  const match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match) return null;
+  const title = decodeHtmlTitle(match[1]).replace(/\s+/g, " ").trim();
+  return title || null;
+}
+
+function decodeHtmlTitle(value) {
+  return String(value || "").replace(HTML_TITLE_ENTITY_RE, (entity, body) => {
+    const key = String(body).toLowerCase();
+    if (key === "amp") return "&";
+    if (key === "lt") return "<";
+    if (key === "gt") return ">";
+    if (key === "quot") return "\"";
+    if (key === "apos") return "'";
+    if (key === "nbsp") return " ";
+    if (key.startsWith("#x")) return decodeCodePoint(Number.parseInt(key.slice(2), 16), entity);
+    if (key.startsWith("#")) return decodeCodePoint(Number.parseInt(key.slice(1), 10), entity);
+    return entity;
+  });
+}
+
+function decodeCodePoint(codePoint, fallback) {
+  if (!Number.isFinite(codePoint)) return fallback;
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    return fallback;
+  }
 }
 
 function fileKind(name) {
@@ -352,7 +499,8 @@ function fileKind(name) {
 
 function matchesType(kind, type) {
   if (type === "all") return true;
-  if (type === "web") return kind === "web" || kind === "markdown";
+  if (type === "web") return kind === "web";
+  if (type === "markdown") return kind === "markdown";
   if (type === "images") return kind === "image";
   if (type === "other") return kind === "other";
   return true;
@@ -391,7 +539,18 @@ async function directorySize(dir, depth = 0, budget = walkBudget()) {
   return total;
 }
 
-async function collectSearchItems({ root, dir, relDir, publicBasePath, q, items, depth = 0, budget = walkBudget() }) {
+async function collectSearchItems({
+  root,
+  dir,
+  relDir,
+  publicBasePath,
+  thumbnailBasePath,
+  onWebThumbnailNeeded,
+  q,
+  items,
+  depth = 0,
+  budget = walkBudget(),
+}) {
   tickWalk(budget);
   if (depth > MAX_PATH_DEPTH) throw statusError(`目录层级超过上限 ${MAX_PATH_DEPTH}。`, 413);
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -403,12 +562,15 @@ async function collectSearchItems({ root, dir, relDir, publicBasePath, q, items,
     if (!stat) continue;
 
     if (entry.name.toLowerCase().includes(q) || rel.toLowerCase().includes(q)) {
-      items.push(fileItem({
+      items.push(await fileItem({
         name: entry.name,
         rel,
         stat,
         kind: stat.isDirectory() ? "directory" : fileKind(entry.name),
+        filesDir: root,
         publicBasePath,
+        thumbnailBasePath,
+        onWebThumbnailNeeded,
         fileCount: stat.isDirectory() ? await directoryFileCount(abs) : undefined,
       }));
     }
@@ -416,8 +578,73 @@ async function collectSearchItems({ root, dir, relDir, publicBasePath, q, items,
     if (entry.isDirectory()) {
       const target = path.resolve(root, rel);
       assertInside(root, target);
-      await collectSearchItems({ root, dir: abs, relDir: rel, publicBasePath, q, items, depth: depth + 1, budget });
+      await collectSearchItems({
+        root,
+        dir: abs,
+        relDir: rel,
+        publicBasePath,
+        thumbnailBasePath,
+        onWebThumbnailNeeded,
+        q,
+        items,
+        depth: depth + 1,
+        budget,
+      });
     }
+  }
+}
+
+async function collectPublishedItems({
+  root,
+  dir,
+  relDir,
+  publicBasePath,
+  thumbnailBasePath,
+  onWebThumbnailNeeded,
+  items,
+  depth = 0,
+  budget = walkBudget(),
+}) {
+  tickWalk(budget);
+  if (depth > MAX_PATH_DEPTH) throw statusError(`目录层级超过上限 ${MAX_PATH_DEPTH}。`, 413);
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+    const abs = path.join(dir, entry.name);
+    const stat = await fs.stat(abs).catch(() => null);
+    if (!stat) continue;
+
+    if (entry.isDirectory()) {
+      const target = path.resolve(root, rel);
+      assertInside(root, target);
+      await collectPublishedItems({
+        root,
+        dir: abs,
+        relDir: rel,
+        publicBasePath,
+        thumbnailBasePath,
+        onWebThumbnailNeeded,
+        items,
+        depth: depth + 1,
+        budget,
+      });
+      continue;
+    }
+
+    if (!entry.isFile()) continue;
+    const kind = fileKind(entry.name);
+    if (kind !== "markdown" && !isWebPagePath(rel)) continue;
+    items.push(await fileItem({
+      name: entry.name,
+      rel,
+      stat,
+      kind,
+      filesDir: root,
+      publicBasePath,
+      thumbnailBasePath,
+      onWebThumbnailNeeded,
+    }));
   }
 }
 

@@ -56,6 +56,8 @@ export async function runCli(argv) {
   if (command === "cd") return changeDirectory(args);
   if (command === "open") return openRemote(args);
   if (command === "upload") return upload(args);
+  if (command === "visibility") return setRemoteVisibility(args);
+  if (command === "publish") return setRemoteVisibility({ ...args, visibility: "public" });
   if (command === "rm") return removeRemote(args);
   if (command === "trash") return trash(args);
 
@@ -63,7 +65,7 @@ export async function runCli(argv) {
 }
 
 export function isClientCommand(command) {
-  return ["auth", "commands", "login", "logout", "whoami", "ls", "cd", "open", "upload", "rm", "trash", "help"].includes(command);
+  return ["auth", "commands", "login", "logout", "whoami", "ls", "cd", "open", "upload", "visibility", "publish", "rm", "trash", "help"].includes(command);
 }
 
 const CLIENT_HELP = `
@@ -83,6 +85,9 @@ Usage:
   knbox open [path] [--browser] [--json]
                                       Print a file URL or list a directory
   knbox upload <file-or-dir> [options]  Upload a file or directory
+  knbox publish <path> [--json]         Publish a document or webpage
+  knbox visibility <path> public|private
+                                      Set homepage visibility
   knbox rm <path> [path...] [--json]    Move remote files or directories to trash
   knbox trash empty --yes [--json]      Permanently empty your trash
 
@@ -90,6 +95,8 @@ Upload options:
   --to <dir>        Upload into a remote directory
   --rename          Auto-rename conflicting files
   --overwrite       Overwrite conflicting files
+  --public          Publish uploaded documents and webpages
+  --private         Keep uploaded documents and webpages private (default)
 
 Global options:
   --server <url>    KN Box server URL (or $KNBOX_URL)
@@ -256,6 +263,7 @@ async function upload(args) {
   if (stat.isSymbolicLink()) throw new CliError("Refusing to upload a symbolic link.");
 
   const conflictMode = args.overwrite ? "overwrite" : args.rename ? "rename" : "error";
+  const visibility = uploadVisibility(args);
   const targetDir = resolveRemotePath(args.to || "", config.cwd);
   const files = stat.isDirectory()
     ? await collectLocalFiles(localPath, path.basename(localPath))
@@ -272,7 +280,7 @@ async function upload(args) {
       continue;
     }
     const targetRelativePath = joinRemote(targetDir, file.rel);
-    const result = await uploadOne(config, file.abs, targetRelativePath, conflictMode);
+    const result = await uploadOne(config, file.abs, targetRelativePath, conflictMode, visibility);
     uploaded.push(result.file);
   }
 
@@ -285,6 +293,26 @@ async function upload(args) {
     for (const file of uploaded) console.log(`${file.path} ${file.url}`);
     if (entryUrl) console.log(`open ${entryUrl}`);
     if (skipped.length) console.error(`Skipped ${skipped.length} unsupported or ignored file(s).`);
+  }
+}
+
+async function setRemoteVisibility(args) {
+  const config = await getRuntimeConfig(args);
+  const target = resolveRemotePath(args._[1] || "", config.cwd);
+  if (!target) throw new CliError("Usage: knbox visibility <path> public|private");
+  const visibility = args.visibility || normalizeVisibility(args._[2], null);
+  if (!visibility) throw new CliError("Visibility must be public or private.");
+  const result = await apiRequest(config, "/api/files/visibility", {
+    method: "PATCH",
+    json: { path: target, visibility },
+  });
+  const item = absolutizeFileUrl(result.item, config.serverUrl);
+  if (args.json) {
+    printJsonOutput(args, { item }, `${item.path} is ${item.visibility}`, [
+      { action: "open", cmd: `knbox open ${shellPath(item.path)} --json` },
+    ]);
+  } else {
+    console.log(`${item.path} ${item.visibility}`);
   }
 }
 
@@ -350,12 +378,13 @@ async function emptyRemoteTrash(args) {
   }
 }
 
-async function uploadOne(config, filePath, targetRelativePath, conflictMode) {
+async function uploadOne(config, filePath, targetRelativePath, conflictMode, visibility) {
   const body = new FormData();
   const data = await fs.readFile(filePath);
   body.set("file", new Blob([data]), path.basename(filePath));
   body.set("targetRelativePath", targetRelativePath);
   body.set("conflictMode", conflictMode);
+  body.set("visibility", visibility);
   const result = await apiRequest(config, "/api/uploads/file", { method: "POST", body });
   return { ...result, file: absolutizeFileUrl(result.file, config.serverUrl) };
 }
@@ -519,11 +548,15 @@ function parseClientArgs(argv) {
     else if (value === "--browser") args.browser = true;
     else if (value === "--overwrite") args.overwrite = true;
     else if (value === "--rename") args.rename = true;
+    else if (value === "--public") args.public = true;
+    else if (value === "--private") args.private = true;
+    else if (value === "--visibility") args.visibility = argv[++i];
     else if (value === "--yes" || value === "-y") args.yes = true;
     else if (value === "--help" || value === "-h") args.help = true;
     else args._.push(value);
   }
   if (args.overwrite && args.rename) throw new CliError("Use only one of --overwrite or --rename.");
+  if (args.public && args.private) throw new CliError("Use only one of --public or --private.");
   return args;
 }
 
@@ -644,8 +677,24 @@ function uploadBreadcrumbs(uploaded, entryUrl) {
   if (entryUrl) crumbs.push({ action: "open_site", cmd: `knbox open ${shellPath(parentRemotePath(uploaded.find((file) => /(^|\/)index\.html?$/i.test(file.path))?.path || ""))} --json` });
   for (const file of uploaded.slice(0, 10)) {
     crumbs.push({ action: "open", cmd: `knbox open ${shellPath(file.path)} --json` });
+    if (file.visibility === "private") crumbs.push({ action: "publish", cmd: `knbox publish ${shellPath(file.path)} --json` });
   }
   return crumbs;
+}
+
+function uploadVisibility(args) {
+  if (args.public) return "public";
+  if (args.private) return "private";
+  if (!args.visibility) return "private";
+  const visibility = normalizeVisibility(args.visibility, null);
+  if (!visibility) throw new CliError("Visibility must be public or private.");
+  return visibility;
+}
+
+function normalizeVisibility(value, fallback = "private") {
+  const visibility = String(value || "").trim().toLowerCase();
+  if (visibility === "public" || visibility === "private") return visibility;
+  return fallback;
 }
 
 function shellPath(remotePath) {
@@ -717,7 +766,17 @@ function commandCatalog() {
     {
       name: "knbox upload <file-or-dir>",
       summary: "Upload a local file or directory and return public URLs.",
-      args: ["file-or-dir", "--to <dir>", "--rename", "--overwrite", "--json", "--quiet"],
+      args: ["file-or-dir", "--to <dir>", "--rename", "--overwrite", "--public", "--private", "--json", "--quiet"],
+    },
+    {
+      name: "knbox visibility <path> public|private",
+      summary: "Set whether a document or webpage appears on your public homepage.",
+      args: ["path", "public|private", "--json", "--quiet"],
+    },
+    {
+      name: "knbox publish <path>",
+      summary: "Publish a document or webpage on your public homepage.",
+      args: ["path", "--json", "--quiet"],
     },
     {
       name: "knbox rm <path> [path...]",

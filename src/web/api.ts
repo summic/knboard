@@ -10,9 +10,19 @@ export type User = {
 };
 export type AuthConfig = { kylithSso: { enabled: boolean; issuer: string | null } };
 
-export type UploadedFile = { name: string; path: string; size: number; url: string };
-export type FileSection = "all" | "web" | "images" | "other";
+export type UploadedFile = { name: string; path: string; size: number; url: string; visibility?: ContentVisibility };
+export type FileSection = "all" | "web" | "markdown" | "images" | "other";
 export type FileKind = "directory" | "web" | "markdown" | "image" | "other";
+export type ContentVisibility = "public" | "private";
+export type HomepageTheme = "theme-1" | "theme-2" | "theme-3" | "theme-4" | "theme-5" | "theme-6";
+export type HomepageFont = "songti" | "georgia" | "palatino" | "kai";
+export type HomepageSettings = {
+  displayName: string;
+  description: string;
+  style: HomepageTheme;
+  titleFont: HomepageFont;
+  showHomeLink: boolean;
+};
 export type FileEntry = {
   name: string;
   path: string;
@@ -21,8 +31,14 @@ export type FileEntry = {
   fileCount?: number;
   updatedAt: string;
   url: string | null;
+  webTitle?: string | null;
+  thumbnailUrl?: string;
+  thumbnailStatus?: "ready" | "pending";
+  thumbnailUpdatedAt?: string | null;
+  visibility?: ContentVisibility;
 };
 export type FileListing = { dir: string; parent: string | null; items: FileEntry[] };
+export type ContentListing = { items: FileEntry[] };
 export type FileSearchResult = { items: FileEntry[] };
 export type StorageUsage = { usedBytes: number; quotaBytes: number };
 export type TrashEntry = {
@@ -48,6 +64,23 @@ export type IssuedCliToken = { ok: true; token: string; item: CliToken };
 export type UploadConflict = { path: string; type: "file" | "directory" };
 export type UploadConflictResult = { conflicts: UploadConflict[]; renamedPaths: Record<string, string> };
 export type UploadConflictMode = "error" | "rename" | "overwrite";
+export type AccessStatsPerson = {
+  user: User;
+  viewCount: number;
+  contentCount: number;
+  lastViewedAt: string | null;
+};
+export type AccessStatsContent = {
+  owner: User;
+  storageName: string;
+  path: string;
+  name: string;
+  kind: "markdown" | "web";
+  viewCount: number;
+  lastViewedAt: string | null;
+  url: string;
+};
+export type AccessStats = { people: AccessStatsPerson[]; contents: AccessStatsContent[] };
 
 // Upload one file via XHR so we get real upload progress events. Returns the
 // promise plus an abort() to cancel mid-flight. relativePath (from a folder
@@ -125,6 +158,8 @@ export const api = {
 
   listFiles: (dir = "", type: FileSection = "all") =>
     req<FileListing>(`/api/files?dir=${enc(dir)}&type=${enc(type)}`),
+  listContent: (limit = 100) =>
+    req<ContentListing>(`/api/content?limit=${enc(String(limit))}`),
   searchFiles: (q: string, limit = 10) =>
     req<FileSearchResult>(`/api/files/search?q=${enc(q)}&limit=${enc(String(limit))}`),
   storage: () => req<StorageUsage>("/api/storage"),
@@ -147,6 +182,17 @@ export const api = {
     }),
   deleteFiles: (paths: string[], confirmName: string) =>
     req<{ ok: true; deleted: number }>("/api/files", { method: "DELETE", body: JSON.stringify({ paths, confirmName }) }),
+  setVisibility: (path: string, visibility: ContentVisibility) =>
+    req<{ ok: true; item: FileEntry }>("/api/files/visibility", {
+      method: "PATCH",
+      body: JSON.stringify({ path, visibility }),
+    }),
+  homepageSettings: () => req<{ settings: HomepageSettings }>("/api/homepage/settings"),
+  updateHomepageSettings: (settings: HomepageSettings) =>
+    req<{ ok: true; settings: HomepageSettings }>("/api/homepage/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
   adminUsers: () => req<{ items: User[] }>("/api/admin/users"),
   makeUserAdmin: (id: number) =>
     req<{ user: User }>(`/api/admin/users/${enc(String(id))}/admin`, { method: "POST" }),
@@ -154,4 +200,5 @@ export const api = {
     req<{ user: User }>(`/api/admin/users/${enc(String(id))}/admin`, { method: "DELETE" }),
   adminUserFiles: (id: number, dir = "", type: FileSection = "all") =>
     req<FileListing>(`/api/admin/users/${enc(String(id))}/files?dir=${enc(dir)}&type=${enc(type)}`),
+  adminAccessStats: () => req<AccessStats>("/api/admin/stats/access"),
 };

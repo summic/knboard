@@ -6,6 +6,12 @@ import { test } from "node:test";
 import { renderForbiddenDocument, renderMarkdownDocument, renderNotFoundDocument } from "../src/server/markdown-renderer.js";
 import { safeReturnTo } from "../src/server/kylith-sso.js";
 import {
+  ensureAccessStatsTables,
+  getAdminAccessStats,
+  publicContentKind,
+  recordFileAccess,
+} from "../src/server/access-stats.js";
+import {
   assertBatchLimits,
   assertPathPolicy,
   configuredUserQuotaBytes,
@@ -22,6 +28,7 @@ import {
   emptyTrash,
   getUserFileEntry,
   getUserStorageUsage,
+  listPublishedContent,
   listTrashEntries,
   listUserFiles,
   restoreTrashEntry,
@@ -32,6 +39,8 @@ import {
   resolveUserFileConflicts,
   storeUserFile,
 } from "../src/server/uploads.js";
+import { createAuth } from "../src/server/auth.js";
+import { webThumbnailRelativePath } from "../src/server/web-thumbnails.js";
 
 async function withTempDir(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "knbox-unit-"));
@@ -95,7 +104,8 @@ test("safe user paths reject traversal, hidden names, and absolute paths", () =>
 test("user files list, search, create, delete, restore, and empty trash", async (t) => {
   const root = await withTempDir(t);
   await writeFile(path.join(root, "docs", "guide.md"), "# Guide");
-  await writeFile(path.join(root, "docs", "site.html"), "<h1>Site</h1>");
+  await writeFile(path.join(root, "docs", "site.html"), "<title>Team &amp; Site</title><h1>Site</h1>");
+  await writeFile(path.join(root, "docs", webThumbnailRelativePath("site.html")), "png");
   await writeFile(path.join(root, "images", "logo.png"), "png");
   await writeFile(path.join(root, ".hidden.md"), "hidden");
 
@@ -105,11 +115,29 @@ test("user files list, search, create, delete, restore, and empty trash", async 
 
   const rootListing = await listUserFiles({ filesDir: root, publicBasePath: "/u/alice" });
   assert.deepEqual(rootListing.items.map((item) => item.name), ["docs", "images"]);
-  const webListing = await listUserFiles({ filesDir: root, publicBasePath: "/u/alice", dir: "docs", type: "web" });
-  assert.deepEqual(webListing.items.map((item) => item.name), ["guide.md", "site.html"]);
+  const webListing = await listUserFiles({
+    filesDir: root,
+    publicBasePath: "/u/alice",
+    thumbnailBasePath: "/api/files/thumbnail",
+    dir: "docs",
+    type: "web",
+  });
+  assert.deepEqual(webListing.items.map((item) => item.name), ["site.html"]);
+  assert.equal(webListing.items[0].webTitle, "Team & Site");
+  assert.equal(webListing.items[0].thumbnailStatus, "ready");
+  assert.equal(webListing.items[0].thumbnailUrl, "/api/files/thumbnail?path=docs%2Fsite.html");
+  const markdownListing = await listUserFiles({ filesDir: root, publicBasePath: "/u/alice", dir: "docs", type: "markdown" });
+  assert.deepEqual(markdownListing.items.map((item) => item.name), ["guide.md"]);
 
   const guide = await getUserFileEntry({ filesDir: root, publicBasePath: "/u/alice", target: "docs/guide.md" });
   assert.equal(guide.url, "/u/alice/docs/guide.md");
+  const content = await listPublishedContent({
+    filesDir: root,
+    publicBasePath: "/u/alice",
+    thumbnailBasePath: "/api/files/thumbnail",
+  });
+  assert.deepEqual(content.items.map((item) => item.path).sort(), ["docs/guide.md", "docs/site.html"]);
+  assert.equal(content.items.some((item) => item.path === "images/logo.png"), false);
   assert.equal((await searchUserFiles({ filesDir: root, publicBasePath: "/u/alice", query: "guide" })).items.length, 1);
   assert.equal((await getUserStorageUsage({ filesDir: root, quotaBytes: 99 })).quotaBytes, 99);
 
@@ -125,6 +153,7 @@ test("user files list, search, create, delete, restore, and empty trash", async 
   assert.equal(await exists(path.join(root, "docs", "guide.md")), true);
 
   await deleteUserFiles({ filesDir: root, paths: ["docs/site.html"], confirmName: "site.html" });
+  assert.equal(await exists(path.join(root, "docs", webThumbnailRelativePath("site.html"))), false);
   assert.equal((await emptyTrash({ filesDir: root })).deleted, 1);
   assert.equal((await listTrashEntries({ filesDir: root })).items.length, 0);
 });
@@ -213,4 +242,51 @@ test("renderers and SSO helpers escape unsafe values", () => {
   assert.match(notFound, /\/x\?&lt;script&gt;/);
   const forbidden = renderForbiddenDocument({ message: "<script>alert(1)</script>" });
   assert.match(forbidden, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test("access stats record readable content without touching files", async (t) => {
+  const root = await withTempDir(t);
+  const auth = await createAuth({ dataDir: root });
+  t.after(() => auth.db.close());
+  ensureAccessStatsTables(auth.db);
+  const user = auth.upsertExternalUser({
+    provider: "kylith",
+    subject: "stats-user",
+    username: "stats-user",
+    email: "stats@example.com",
+    name: "Stats User",
+  });
+  const uploadsDir = auth.userUploadsDir(user);
+  await writeFile(path.join(uploadsDir, "docs", "guide.md"), "# Guide");
+
+  assert.equal(publicContentKind("docs/guide.md"), "markdown");
+  assert.equal(publicContentKind("site/index.html"), "web");
+  assert.equal(publicContentKind("assets/app.js"), null);
+  assert.equal(auth.getUserByStorageName("stats-user")?.id, user.id);
+
+  const before = await fs.readFile(path.join(uploadsDir, "docs", "guide.md"), "utf8");
+  assert.equal(recordFileAccess({
+    db: auth.db,
+    user,
+    storageName: "stats-user",
+    filePath: "docs/guide.md",
+    kind: "markdown",
+    now: new Date("2026-06-05T00:00:00.000Z"),
+  }), true);
+  recordFileAccess({
+    db: auth.db,
+    user,
+    storageName: "stats-user",
+    filePath: "docs/guide.md",
+    kind: "markdown",
+    now: new Date("2026-06-05T00:10:00.000Z"),
+  });
+
+  const stats = getAdminAccessStats({ db: auth.db });
+  assert.equal(stats.people[0].viewCount, 2);
+  assert.equal(stats.people[0].contentCount, 1);
+  assert.equal(stats.contents[0].path, "docs/guide.md");
+  assert.equal(stats.contents[0].viewCount, 2);
+  assert.equal(stats.contents[0].url, "/u/stats-user/docs/guide.md");
+  assert.equal(await fs.readFile(path.join(uploadsDir, "docs", "guide.md"), "utf8"), before);
 });

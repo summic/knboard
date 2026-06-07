@@ -2,6 +2,29 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promises as fs } from "node:fs";
+import {
+  ensureAccessStatsTables,
+  getAdminAccessStats,
+  publicContentKind,
+  recordFileAccess,
+} from "./access-stats.js";
+import {
+  contentVisibilityMap,
+  ensureContentVisibilityTables,
+  normalizeContentVisibility,
+  setContentVisibility,
+} from "./content-visibility.js";
+import {
+  ensureHomepageSettingsTables,
+  getHomepageSettings,
+  updateHomepageSettings,
+  homepageFontStack,
+} from "./homepage-settings.js";
+import {
+  homeWidgetConfig,
+  homeWidgetScript,
+  injectHomeWidget,
+} from "./home-widget.js";
 import { createAuth, setSessionCookie } from "./auth.js";
 import { createKylithSso, safeReturnTo } from "./kylith-sso.js";
 import {
@@ -23,11 +46,18 @@ import {
   emptyTrash,
   getUserFileEntry,
   getUserStorageUsage,
+  listPublishedContent,
   listTrashEntries,
   listUserFiles,
   restoreTrashEntry,
+  safeUserRelativePath,
   searchUserFiles,
 } from "./user-files.js";
+import {
+  isWebPagePath,
+  queueWebThumbnail,
+  readWebThumbnail,
+} from "./web-thumbnails.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIST = path.resolve(__dirname, "../../dist/web");
@@ -77,6 +107,9 @@ export async function createServerApp({
   serveWeb = false,
 } = {}) {
   const auth = await createAuth({ dataDir });
+  ensureAccessStatsTables(auth.db);
+  ensureContentVisibilityTables(auth.db);
+  ensureHomepageSettingsTables(auth.db);
   const filesPublicUrl = cleanPublicUrl(rawFilesPublicUrl);
   const filesPublicHost = filesPublicUrl ? new URL(filesPublicUrl).host.toLowerCase() : null;
   const kylithSso = createKylithSso({ publicUrl, sessionSecret: auth.sessionSecret });
@@ -88,6 +121,7 @@ export async function createServerApp({
     if (!filesPublicHost) return next();
     if (requestHost(req) !== filesPublicHost) return next();
     if (req.path.startsWith("/u/")) return next();
+    if (req.path === "/knbox/home-widget.js") return next();
     res.status(404).type("text").send("Not found");
   });
   app.use(originGuard({ publicUrl }));
@@ -208,11 +242,36 @@ export async function createServerApp({
     const listing = await listUserFiles({
       filesDir: auth.userUploadsDir(targetUser),
       publicBasePath: publicFileBasePath({ auth, user: targetUser, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: targetUser,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: `/api/admin/users/${encodeURIComponent(String(targetUser.id))}/files/thumbnail`,
+      }),
+      ...visibilityOptions({ auth, user: targetUser }),
       dir: req.query.dir,
       type: req.query.type || "all",
     });
     return res.json(listing);
   }));
+
+  app.get("/api/admin/users/:id/files/thumbnail", auth.requireAdmin, asyncRoute(async (req, res) => {
+    const targetUser = auth.getUser(req.params.id);
+    if (!targetUser) return res.status(404).json({ error: "User not found." });
+    return sendWebThumbnail({
+      auth,
+      user: targetUser,
+      publicUrl,
+      filesPublicUrl,
+      rel: req.query.path,
+      res,
+    });
+  }));
+
+  app.get("/api/admin/stats/access", auth.requireAdmin, (req, res) => {
+    res.json(getAdminAccessStats({ db: auth.db, limit: req.query.limit || 20 }));
+  });
 
   app.post("/api/uploads/conflicts", auth.requireUser, express.json({ limit: "256kb" }), asyncRoute(async (req, res) => {
     assertUploadBatch(req.body?.paths, req.body?.totalBytes);
@@ -238,6 +297,23 @@ export async function createServerApp({
         filesDir: auth.userUploadsDir(req.user),
         publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
       });
+      if (publicContentKind(file.path)) {
+        file.visibility = setContentVisibility({
+          db: auth.db,
+          userId: req.user.id,
+          path: file.path,
+          visibility: normalizeContentVisibility(req.body?.visibility, "private"),
+        });
+      }
+      if (isWebPagePath(file.path)) {
+        queueWebThumbnail(thumbnailJob({
+          auth,
+          user: req.user,
+          publicUrl,
+          filesPublicUrl,
+          rel: file.path,
+        }));
+      }
       return res.json({ ok: true, file });
     } catch (error) {
       await removeUpload(req.file);
@@ -249,16 +325,67 @@ export async function createServerApp({
     const listing = await listUserFiles({
       filesDir: auth.userUploadsDir(req.user),
       publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: req.user,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: "/api/files/thumbnail",
+      }),
+      ...visibilityOptions({ auth, user: req.user }),
       dir: req.query.dir,
       type: req.query.type || "all",
     });
     res.json(listing);
   }));
 
+  app.get("/api/content", auth.requireUser, asyncRoute(async (req, res) => {
+    const listing = await listPublishedContent({
+      filesDir: auth.userUploadsDir(req.user),
+      publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: req.user,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: "/api/files/thumbnail",
+      }),
+      ...visibilityOptions({ auth, user: req.user }),
+      includePrivate: req.query.visibility !== "public",
+      limit: req.query.limit || 100,
+    });
+    res.json(listing);
+  }));
+
+  app.get("/api/homepage/settings", auth.requireUser, (req, res) => {
+    res.json({ settings: getHomepageSettings({ db: auth.db, user: req.user }) });
+  });
+
+  app.patch("/api/homepage/settings", auth.requireUser, express.json({ limit: "32kb" }), (req, res) => {
+    const settings = updateHomepageSettings({
+      db: auth.db,
+      user: req.user,
+      displayName: req.body?.displayName,
+      description: req.body?.description,
+      style: req.body?.style,
+      titleFont: req.body?.titleFont,
+      showHomeLink: req.body?.showHomeLink,
+    });
+    res.json({ ok: true, settings });
+  });
+
   app.get("/api/files/search", auth.requireUser, asyncRoute(async (req, res) => {
     const result = await searchUserFiles({
       filesDir: auth.userUploadsDir(req.user),
       publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: req.user,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: "/api/files/thumbnail",
+      }),
+      ...visibilityOptions({ auth, user: req.user }),
       query: req.query.q,
       limit: req.query.limit || 10,
     });
@@ -269,6 +396,14 @@ export async function createServerApp({
     const entry = await getUserFileEntry({
       filesDir: auth.userUploadsDir(req.user),
       publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: req.user,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: "/api/files/thumbnail",
+      }),
+      ...visibilityOptions({ auth, user: req.user }),
       target: req.query.path,
     });
     if (!entry) return res.status(404).json({ error: "File not found." });
@@ -281,6 +416,75 @@ export async function createServerApp({
       quotaBytes: configuredUserQuotaBytes(),
     });
     res.json(usage);
+  }));
+
+  app.get("/api/files/thumbnail", auth.requireUser, asyncRoute(async (req, res) => {
+    return sendWebThumbnail({
+      auth,
+      user: req.user,
+      publicUrl,
+      filesPublicUrl,
+      rel: req.query.path,
+      res,
+    });
+  }));
+
+  app.get("/api/public/users/:storageName/files/thumbnail", asyncRoute(async (req, res) => {
+    const owner = auth.getUserByStorageName(req.params.storageName);
+    if (!owner) return res.status(404).json({ error: "Thumbnail not found." });
+    let rel;
+    try {
+      rel = safeUserRelativePath(req.query.path);
+    } catch {
+      return res.status(400).json({ error: "Invalid file path." });
+    }
+    if (!publicContentKind(rel)) return res.status(404).json({ error: "Thumbnail not found." });
+    const visibility = contentVisibilityMap({ db: auth.db, userId: owner.id, paths: [rel] }).get(rel) || "private";
+    if (visibility !== "public") return res.status(404).json({ error: "Thumbnail not found." });
+    return sendWebThumbnail({
+      auth,
+      user: owner,
+      publicUrl,
+      filesPublicUrl,
+      rel,
+      res,
+    });
+  }));
+
+  app.patch("/api/files/visibility", auth.requireUser, express.json({ limit: "64kb" }), asyncRoute(async (req, res) => {
+    const rel = safeUserRelativePath(req.body?.path);
+    if (!publicContentKind(rel)) return res.status(400).json({ error: "Only Markdown documents and HTML webpages can be published." });
+    const visibility = normalizeContentVisibility(req.body?.visibility, null);
+    if (!visibility) return res.status(400).json({ error: "Visibility must be public or private." });
+    const existing = await getUserFileEntry({
+      filesDir: auth.userUploadsDir(req.user),
+      publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: req.user,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: "/api/files/thumbnail",
+      }),
+      ...visibilityOptions({ auth, user: req.user }),
+      target: rel,
+    });
+    if (!existing || existing.kind === "directory") return res.status(404).json({ error: "File not found." });
+    setContentVisibility({ db: auth.db, userId: req.user.id, path: rel, visibility });
+    const item = await getUserFileEntry({
+      filesDir: auth.userUploadsDir(req.user),
+      publicBasePath: publicFileBasePath({ auth, user: req.user, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: req.user,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: "/api/files/thumbnail",
+      }),
+      ...visibilityOptions({ auth, user: req.user }),
+      target: rel,
+    });
+    return res.json({ ok: true, item });
   }));
 
   app.get("/api/trash", auth.requireUser, asyncRoute(async (req, res) => {
@@ -319,13 +523,48 @@ export async function createServerApp({
   }));
 
   app.use("/api", createApi({ auth }));
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "API endpoint not found." });
+  });
   app.use("/api", (err, _req, res, _next) => {
     console.error(err);
     const message = err.code === "LIMIT_FILE_SIZE" ? "单文件不能超过 10MB。" : err.message || "Request failed";
     res.status(err.status || 400).json({ error: message });
   });
 
+  app.get("/knbox/home-widget.js", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.type("application/javascript").send(homeWidgetScript());
+  });
+
+  app.get(["/u/:storageName", "/u/:storageName/"], asyncRoute(async (req, res) => {
+    const owner = auth.getUserByStorageName(req.params.storageName);
+    if (!owner) return res.status(404).type("html").send(renderNotFoundDocument({ path: req.path }));
+    const settings = getHomepageSettings({ db: auth.db, user: owner });
+    const listing = await listPublishedContent({
+      filesDir: auth.userUploadsDir(owner),
+      publicBasePath: publicFileBasePath({ auth, user: owner, filesPublicUrl }),
+      ...thumbnailOptions({
+        auth,
+        user: owner,
+        publicUrl,
+        filesPublicUrl,
+        thumbnailBasePath: `/api/public/users/${encodeURIComponent(auth.userStorageName(owner))}/files/thumbnail`,
+      }),
+      ...visibilityOptions({ auth, user: owner }),
+      includePrivate: false,
+      limit: 200,
+    });
+    res.set("Cache-Control", "public, max-age=60");
+    return res.type("html").send(renderUserHomepage({
+      user: owner,
+      items: listing.items,
+      settings,
+    }));
+  }));
+
   app.get("/u/:storageName/*", asyncRoute(async (req, res) => {
+    const owner = auth.getUserByStorageName(req.params.storageName);
     const root = path.resolve(auth.publicUploadsDir(req.params.storageName));
     const rel = safePublicFilePath(req.params[0]);
     let file = path.resolve(root, rel);
@@ -349,10 +588,47 @@ export async function createServerApp({
       return res.status(404).type("html").send(renderNotFoundDocument({ path: req.path }));
     }
 
+    const finalRel = path.relative(root, file).split(path.sep).join("/");
+    const accessKind = publicContentKind(finalRel);
+    if (owner && accessKind) {
+      try {
+        recordFileAccess({
+          db: auth.db,
+          user: owner,
+          storageName: req.params.storageName,
+          filePath: finalRel,
+          kind: accessKind,
+        });
+      } catch (error) {
+        console.warn("Failed to record file access", error?.message || error);
+      }
+    }
+
     if (isMarkdownFile(file)) {
       const markdown = await fs.readFile(file, "utf8");
+      const settings = owner ? getHomepageSettings({ db: auth.db, user: owner }) : null;
       res.set("Cache-Control", "public, max-age=60");
-      res.type("html").send(renderMarkdownDocument(markdown, { title: path.basename(file) }));
+      res.type("html").send(renderMarkdownDocument(markdown, {
+        title: path.basename(file),
+        theme: settings?.style,
+        homeWidget: homeWidgetConfig({
+          user: owner,
+          storageName: req.params.storageName,
+          settings,
+        }),
+      }));
+      return;
+    }
+
+    if (isHtmlFile(file)) {
+      const html = await fs.readFile(file, "utf8");
+      const settings = owner ? getHomepageSettings({ db: auth.db, user: owner }) : null;
+      res.set("Cache-Control", "public, max-age=60");
+      res.type("html").send(injectHomeWidget(html, homeWidgetConfig({
+        user: owner,
+        storageName: req.params.storageName,
+        settings,
+      })));
       return;
     }
 
@@ -419,6 +695,250 @@ export async function startServer({ port = 6789, open = false } = {}) {
 function publicFileBasePath({ auth, user, filesPublicUrl }) {
   const base = `/u/${encodeURIComponent(auth.userStorageName(user))}`;
   return filesPublicUrl ? `${filesPublicUrl}${base}` : base;
+}
+
+function thumbnailOptions({ auth, user, publicUrl, filesPublicUrl, thumbnailBasePath }) {
+  return {
+    thumbnailBasePath,
+    onWebThumbnailNeeded: (rel) => queueWebThumbnail(thumbnailJob({
+      auth,
+      user,
+      publicUrl,
+      filesPublicUrl,
+      rel,
+    })),
+  };
+}
+
+function visibilityOptions({ auth, user }) {
+  return {
+    visibilityForPaths: (paths) => contentVisibilityMap({ db: auth.db, userId: user.id, paths }),
+  };
+}
+
+function thumbnailJob({ auth, user, publicUrl, filesPublicUrl, rel }) {
+  const basePath = publicFileBasePath({ auth, user, filesPublicUrl });
+  const encodedRel = String(rel || "").split("/").map(encodeURIComponent).join("/");
+  const pageUrl = new URL(`${basePath.replace(/\/$/, "")}/${encodedRel}`, publicUrl).toString();
+  const allowedPathPrefix = new URL(`${basePath.replace(/\/$/, "")}/`, publicUrl).pathname;
+  return {
+    filesDir: auth.userUploadsDir(user),
+    rel,
+    pageUrl,
+    allowedPathPrefix,
+  };
+}
+
+async function sendWebThumbnail({ auth, user, publicUrl, filesPublicUrl, rel, res }) {
+  let safeRel;
+  try {
+    safeRel = safeUserRelativePath(rel);
+  } catch {
+    return res.status(400).json({ error: "Invalid file path." });
+  }
+  if (!isWebPagePath(safeRel)) return res.status(404).json({ error: "Thumbnail not found." });
+  const filesDir = auth.userUploadsDir(user);
+  const thumb = await readWebThumbnail({ filesDir, rel: safeRel });
+  if (!thumb) {
+    queueWebThumbnail(thumbnailJob({ auth, user, publicUrl, filesPublicUrl, rel: safeRel }));
+    return res.status(404).json({ error: "Thumbnail not ready." });
+  }
+  res.set("Cache-Control", "private, max-age=60");
+  res.type("png");
+  return res.sendFile(thumb.path, { dotfiles: "allow" });
+}
+
+function renderUserHomepage({ user, items, settings }) {
+  const homepageName = settings?.displayName || user.name || user.username || "个人主页";
+  const style = settings?.style || "theme-6";
+  const title = homepageName;
+  const bioText = (settings?.description || "").trim();
+  const fontStack = homepageFontStack(settings?.titleFont);
+  const count = items.length;
+
+  const groups = count ? groupContentByDate(items) : [];
+  const rows = count
+    ? groups.map((group, groupIndex) => `
+      <section class="group">
+        ${groupIndex === 0 ? "" : `<div class="group-divider"><span>${escapeHtml(group.label)}</span></div>`}
+        <ul class="list">
+          ${group.items.map((item) => {
+            const itemTitle = escapeHtml(item.webTitle || item.name);
+            const date = formatDateParts(item.updatedAt);
+            const dateBlock = date
+              ? `<time class="item-date" datetime="${escapeAttribute(date.iso)}"><span class="item-date-month">${escapeHtml(date.month)}</span><span class="item-date-day">${escapeHtml(date.day)}</span></time>`
+              : `<span class="item-date" aria-hidden="true"></span>`;
+            return `
+              <li class="item">
+                <a href="${escapeAttribute(item.url || "#")}">
+                  ${dateBlock}
+                  <span class="item-title">${itemTitle}</span>
+                  <span class="item-arrow" aria-hidden="true">→</span>
+                </a>
+              </li>`;
+          }).join("")}
+        </ul>
+      </section>`).join("")
+    : `<div class="empty"><p>Nothing more — for now</p></div>`;
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --oklch-theme-1: 0.9802 0.0074 151.89;
+      --oklch-theme-2: 0.9822 0.0118 313.22;
+      --oklch-theme-3: 0.9856 0.0084 56.32;
+      --oklch-theme-4: 0.9808 0.0091 258.34;
+      --oklch-theme-5: 0.9727 0.0119 17.36;
+      --oklch-theme-6: 0.9731 0 0;
+      --ink: #1b1a17;
+      --ink-soft: #57534b;
+      --muted: #8b867c;
+      --line: rgba(28, 25, 20, 0.10);
+      --line-strong: rgba(28, 25, 20, 0.16);
+      --accent: #1f5fd1;
+      --bg: oklch(var(--oklch-theme-6));
+      --serif: ${fontStack};
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+    }
+    body.homepage-theme-1 { --bg: oklch(var(--oklch-theme-1)); }
+    body.homepage-theme-2 { --bg: oklch(var(--oklch-theme-2)); }
+    body.homepage-theme-3 { --bg: oklch(var(--oklch-theme-3)); }
+    body.homepage-theme-4 { --bg: oklch(var(--oklch-theme-4)); }
+    body.homepage-theme-5 { --bg: oklch(var(--oklch-theme-5)); }
+    body.homepage-theme-6 { --bg: oklch(var(--oklch-theme-6)); }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    main { width: min(720px, calc(100% - 40px)); margin: 0 auto; padding: 96px 0 56px; min-height: 100vh; display: flex; flex-direction: column; }
+    .content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+    header { margin-bottom: 60px; }
+    h1 { margin: 0; font-family: var(--serif); font-size: clamp(40px, 7vw, 60px); font-weight: 600; line-height: 1.08; letter-spacing: -0.01em; color: var(--ink); }
+    .bio { max-width: 34em; margin: 18px 0 0; font-family: var(--serif); font-style: italic; font-size: 19px; line-height: 1.7; color: var(--ink-soft); white-space: pre-line; }
+
+    .group { margin-top: 48px; }
+    .group:first-child { margin-top: 0; }
+    .group-divider { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; margin-bottom: 8px; }
+    .group-divider::before, .group-divider::after { content: ""; height: 1px; background: var(--line-strong); }
+    .group-divider span { font-size: 13px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+    .list { list-style: none; margin: 0; padding: 0; }
+    .item + .item { border-top: 1px solid var(--line); }
+    .item a {
+      display: grid;
+      grid-template-columns: 3.4em minmax(0, 1fr) auto;
+      align-items: center;
+      column-gap: 22px;
+      padding: 20px 0;
+      color: inherit;
+      text-decoration: none;
+      transition: padding-left .18s ease;
+    }
+    .item-date { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+    .item-date-month { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+    .item-date-day { margin-top: 4px; font-family: var(--serif); font-size: 24px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .item-title { min-width: 0; font-family: var(--serif); font-size: 21px; font-weight: 600; line-height: 1.32; color: var(--ink); transition: color .15s ease; }
+    .item-arrow { flex-shrink: 0; font-size: 20px; color: var(--muted); opacity: 0; transform: translateX(-6px); transition: opacity .18s ease, transform .18s ease; }
+    .item a:hover .item-title { color: var(--accent); }
+    .item a:hover .item-arrow { opacity: 1; transform: translateX(0); }
+    .item a:hover { padding-left: 6px; }
+
+    .empty { flex: 1; display: grid; place-items: center; min-height: 40vh; text-align: center; color: var(--muted); }
+    .empty p { margin: 0; font-family: var(--serif); font-style: italic; font-size: 18px; }
+
+    .end-note { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px; margin-top: 64px; }
+    .end-note::before, .end-note::after { content: ""; height: 1px; }
+    .end-note::before { background: linear-gradient(90deg, transparent, var(--line-strong)); }
+    .end-note::after { background: linear-gradient(90deg, var(--line-strong), transparent); }
+    .end-note span { font-family: var(--serif); font-style: italic; font-size: 16px; letter-spacing: .02em; color: var(--muted); }
+
+    footer { margin-top: 40px; font-size: 13px; color: var(--muted); }
+    footer a { color: var(--ink-soft); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+
+    @media (max-width: 560px) {
+      main { padding: 56px 0 80px; }
+      header { margin-bottom: 40px; }
+      .item a { grid-template-columns: 2.8em minmax(0, 1fr); column-gap: 16px; padding: 16px 0; }
+      .item-arrow { display: none; }
+      .item-date-day { font-size: 21px; }
+      .item-title { font-size: 19px; }
+    }
+  </style>
+</head>
+<body class="homepage-${escapeAttribute(style)}">
+  <main>
+    <header>
+      <h1 id="homepage-title">${escapeHtml(title)}</h1>
+      ${bioText ? `<p class="bio">${escapeHtml(bioText)}</p>` : ""}
+    </header>
+    <div class="content" aria-label="已发布内容">
+      ${rows}
+      ${count ? `<div class="end-note"><span>The end.</span></div>` : ""}
+    </div>
+    <footer>由 <a href="https://github.com/summic/knbox" target="_blank" rel="noreferrer noopener">knbox</a> 提供</footer>
+  </main>
+</body>
+</html>`;
+}
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatDateParts(value) {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return null;
+  const date = new Date(time);
+  return {
+    month: MONTH_ABBR[date.getMonth()],
+    day: String(date.getDate()),
+    iso: date.toISOString().slice(0, 10),
+  };
+}
+
+function groupContentByDate(items) {
+  const now = new Date();
+  const nowTime = now.getTime();
+  const currentYear = now.getFullYear();
+  const groups = [];
+  for (const item of items) {
+    const date = new Date(item.updatedAt);
+    const time = date.getTime();
+    const ageDays = Number.isFinite(time) ? Math.max(0, Math.floor((nowTime - time) / 86400000)) : Infinity;
+    let key = "older";
+    let label = "更早";
+    if (ageDays < 7) {
+      key = "recent";
+      label = "最近文章";
+    } else if (ageDays < 37) {
+      key = "week";
+      label = "一周前";
+    } else if (Number.isFinite(time) && date.getFullYear() !== currentYear) {
+      key = `year-${date.getFullYear()}`;
+      label = String(date.getFullYear());
+    }
+    const last = groups[groups.length - 1];
+    if (last?.key === key) last.items.push(item);
+    else groups.push({ key, label, items: [item] });
+  }
+  return groups;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
 function assertUploadBatch(paths, totalBytes) {
@@ -510,6 +1030,10 @@ function safeLoopbackCallback(value) {
 
 function isMarkdownFile(file) {
   return [".md", ".markdown", ".mdx"].includes(path.extname(file).toLowerCase());
+}
+
+function isHtmlFile(file) {
+  return [".html", ".htm"].includes(path.extname(file).toLowerCase());
 }
 
 async function findDirectoryIndex(dir) {

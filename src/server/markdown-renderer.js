@@ -3,8 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { homeWidgetMarkup } from "./home-widget.js";
 
-export function renderMarkdownDocument(markdown, { title = "Markdown" } = {}) {
+export function renderMarkdownDocument(markdown, { title = "Markdown", theme = "theme-6", homeWidget = null } = {}) {
   const body = renderToStaticMarkup(
     React.createElement(
       "article",
@@ -27,7 +28,7 @@ export function renderMarkdownDocument(markdown, { title = "Markdown" } = {}) {
   <title>${escapeHtml(title)}</title>
   <style>${pageStyles()}</style>
 </head>
-${bodyShell(body)}
+${bodyShell(body, { theme, homeWidget })}
 </html>`;
 }
 
@@ -87,16 +88,23 @@ ${bodyShell(body)}
 </html>`;
 }
 
-function bodyShell(body) {
-  return `<body>
+function bodyShell(body, { theme = "theme-6", homeWidget = null } = {}) {
+  return `<body class="${themeClass(theme)}">
   ${body}
+  ${homeWidgetMarkup(homeWidget)}
 </body>`;
 }
 
 function pageStyles() {
   return `
     :root {
-      --page: #f7f6f0;
+      --oklch-theme-1: 0.9802 0.0074 151.89;
+      --oklch-theme-2: 0.9822 0.0118 313.22;
+      --oklch-theme-3: 0.9856 0.0084 56.32;
+      --oklch-theme-4: 0.9808 0.0091 258.34;
+      --oklch-theme-5: 0.9727 0.0119 17.36;
+      --oklch-theme-6: 0.9731 0 0;
+      --page: oklch(var(--oklch-theme-6));
       --sheet: #ffffff;
       --ink: #27241f;
       --ink-soft: #7b7568;
@@ -111,6 +119,12 @@ function pageStyles() {
       --h2-size: 27px;
       --h3-size: 22px;
     }
+    body.homepage-theme-1 { --page: oklch(var(--oklch-theme-1)); }
+    body.homepage-theme-2 { --page: oklch(var(--oklch-theme-2)); }
+    body.homepage-theme-3 { --page: oklch(var(--oklch-theme-3)); }
+    body.homepage-theme-4 { --page: oklch(var(--oklch-theme-4)); }
+    body.homepage-theme-5 { --page: oklch(var(--oklch-theme-5)); }
+    body.homepage-theme-6 { --page: oklch(var(--oklch-theme-6)); }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -252,4 +266,9 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function themeClass(theme) {
+  const value = String(theme || "").trim().toLowerCase();
+  return /^theme-[1-6]$/.test(value) ? `homepage-${value}` : "homepage-theme-6";
 }

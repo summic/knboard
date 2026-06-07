@@ -205,6 +205,11 @@ export function createAuth({ dataDir }) {
         return user ? publicUser(user) : null;
       },
 
+      getUserByStorageName(storageName) {
+        const user = findUserByStorageName(db, String(storageName || ""));
+        return user ? publicUser(user) : null;
+      },
+
       makeUserAdmin(id) {
         const userId = Number(id);
         if (!Number.isInteger(userId) || userId <= 0) return null;

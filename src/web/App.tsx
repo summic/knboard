@@ -2,9 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Box,
   Home as HomeIcon,
-  Globe,
-  Image,
-  Files,
   Search,
   Upload,
   LogOut,
@@ -21,11 +18,11 @@ import {
 } from "lucide-react";
 import { api, AuthRequiredError, type AuthConfig, type FileEntry, type FileSection, type StorageUsage, type TrashEntry, type User } from "./api";
 import { AdminPage } from "./Admin";
-import { Home } from "./Home";
+import { ContentHome, Home } from "./Home";
 import { Help } from "./Help";
 import { useUploads, UploadManager, type UploadSourceFile } from "./UploadManager";
 
-type AppView = "files" | "trash" | "help" | "admin";
+type AppView = "content" | "files" | "trash" | "help" | "admin";
 type Route = { view: AppView; section: FileSection; dir: string; adminUserId?: number | null };
 type DropHint = { active: boolean; count: number | null };
 type DataTransferItemWithEntry = DataTransferItem & {
@@ -34,14 +31,16 @@ type DataTransferItemWithEntry = DataTransferItem & {
 
 const SECTIONS: Record<string, FileSection> = {
   "~web": "web",
+  "~markdown": "markdown",
   "~images": "images",
   "~other": "other",
 };
 
 function parsePath(pathname: string): Route {
   const raw = decodeURIComponent(pathname.replace(/^\/+/, "")).replace(/\/$/, "");
-  if (!raw) return { view: "files", section: "all", dir: "" };
+  if (!raw) return { view: "content", section: "all", dir: "" };
   const parts = raw.split("/").filter(Boolean);
+  if (parts[0] === "~folders") return { view: "files", section: "all", dir: normalizeRouteDir(parts.slice(1).join("/")) };
   if (parts[0] === "~trash") return { view: "trash", section: "all", dir: "" };
   if (parts[0] === "~help" || parts[0] === "~cli" || parts[0] === "~skills") return { view: "help", section: "all", dir: "" };
   if (parts[0] === "~admin") {
@@ -58,16 +57,10 @@ function parsePath(pathname: string): Route {
   return { view: "files", section, dir: normalizeRouteDir(dirParts.join("/")) };
 }
 
-const NAV_ITEMS: { id: FileSection; label: string; icon: typeof HomeIcon }[] = [
-  { id: "all", label: "首页", icon: HomeIcon },
-  { id: "web", label: "网页", icon: Globe },
-  { id: "images", label: "图片", icon: Image },
-  { id: "other", label: "其他", icon: Files },
-];
-
 const ROUTE_FOR: Record<FileSection, string> = {
-  all: "",
+  all: "~folders",
   web: "~web",
+  markdown: "~markdown",
   images: "~images",
   other: "~other",
 };
@@ -94,7 +87,7 @@ function parentDir(path: string): string {
 }
 
 function uploadDestinationLabel(dir: string): string {
-  return dir ? `/${dir}` : "首页";
+  return dir ? `/${dir}` : "文件夹";
 }
 
 function fileKindLabel(kind: FileEntry["kind"]): string {
@@ -363,7 +356,7 @@ export function App() {
   if (!user) return <Login authConfig={authConfig} />;
 
   const route = parsePath(path);
-  const nav = route.view === "files" ? route.section : route.view === "help" ? "help" : route.view;
+  const nav = route.view === "content" ? "content" : route.view === "files" ? "folders" : route.view === "help" ? "help" : route.view;
 
   const go = (path: string) => {
     setMobileSidebarOpen(false);
@@ -379,7 +372,7 @@ export function App() {
     }
   };
   const goHome = () => go("");
-  const goSection = (s: FileSection) => go(routePath(s));
+  const goFolders = () => go(routePath("all"));
   const goTrash = () => go("~trash");
   const goHelp = () => go("~help");
   const goAdmin = () => go("~admin");
@@ -473,30 +466,24 @@ export function App() {
         <nav className="kb-nav">
           <div className="kb-nav-group">
             <button
-              className={`kb-nav-item ${nav === "all" ? "is-active" : ""}`}
-              data-label="首页"
-              onClick={() => goSection("all")}
+              className={`kb-nav-item ${nav === "content" ? "is-active" : ""}`}
+              data-label="全部内容"
+              onClick={goHome}
             >
               <HomeIcon size={18} aria-hidden />
-              <span>首页</span>
+              <span>全部内容</span>
+            </button>
+            <button
+              className={`kb-nav-item ${nav === "folders" ? "is-active" : ""}`}
+              data-label="文件夹"
+              onClick={goFolders}
+            >
+              <FolderIcon size={18} aria-hidden />
+              <span>文件夹</span>
             </button>
           </div>
           <div className="kb-nav-group">
-            <div className="kb-nav-section">文件类型</div>
-            {NAV_ITEMS.filter((item) => item.id !== "all").map(({ id, label, icon: I }) => (
-              <button
-                key={id}
-                className={`kb-nav-item ${nav === id ? "is-active" : ""}`}
-                data-label={label}
-                onClick={() => goSection(id)}
-              >
-                <I size={18} aria-hidden />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-          <div className="kb-nav-group">
-            <div className="kb-nav-section">回收站</div>
+            <div className="kb-nav-section">管理</div>
             <button
               className={`kb-nav-item ${nav === "trash" ? "is-active" : ""}`}
               data-label="回收站"
@@ -666,8 +653,18 @@ export function App() {
               currentUser={user}
               selectedUserId={route.adminUserId}
               dir={route.dir}
+              onHome={goAdmin}
               onSelectUser={(userId) => goAdminUserDir(userId)}
               onUserDirChange={goAdminUserDir}
+              onPreviewOpen={() => {
+                if (uploads.open && !uploads.collapsed) uploads.setCollapsed(true);
+              }}
+            />
+          ) : route.view === "content" ? (
+            <ContentHome
+              user={user}
+              query={query}
+              refreshKey={filesRefreshKey}
               onPreviewOpen={() => {
                 if (uploads.open && !uploads.collapsed) uploads.setCollapsed(true);
               }}
