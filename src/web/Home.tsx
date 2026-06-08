@@ -384,18 +384,6 @@ export function ContentHome({
                 ))}
               </div>
             </div>
-            <label className="homepage-toggle">
-              <input
-                type="checkbox"
-                checked={settingsShowHomeLink}
-                disabled={settingsSaving}
-                onChange={(event) => setSettingsShowHomeLink(event.target.checked)}
-              />
-              <span>
-                <strong>显示文章左下角的首页链接</strong>
-                <em>公开 Markdown 和网页会显示头像与 Home，点击回到个人主页。</em>
-              </span>
-            </label>
             {settingsError && <div className="fm-dialog-error">{settingsError}</div>}
             {settingsMessage && <div className="fm-dialog-message">{settingsMessage}</div>}
             <div className="fm-dialog-actions">

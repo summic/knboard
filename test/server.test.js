@@ -338,11 +338,10 @@ test("public files host cannot access app APIs", async (t) => {
   const { res: apiRes } = await request(baseUrl, "/api/auth/config", { headers: { Host: "b.beforeve.com" } });
   assert.equal(apiRes.statusCode, 404);
 
-  const { res: widgetRes, body: widgetBody } = await request(baseUrl, "/knbox/home-widget.js", {
+  const { res: widgetRes } = await request(baseUrl, "/knbox/home-widget.js", {
     headers: { Host: "b.beforeve.com" },
   });
-  assert.equal(widgetRes.statusCode, 200);
-  assert.match(widgetBody, /knbox-home-widget/);
+  assert.equal(widgetRes.statusCode, 404);
 
   const { res: fileRes, body } = await request(baseUrl, `/u/${user.username}/index.html`, {
     headers: { Host: "b.beforeve.com" },
@@ -418,9 +417,8 @@ test("public file routes serve markdown, directory indexes, and safe errors", as
   assert.match(markdownHtml, /Hello/);
   assert.match(markdownHtml, /homepage-theme-2/);
   assert.match(markdownHtml, /--oklch-theme-2: 0\.9822 0\.0118 313\.22/);
-  assert.match(markdownHtml, /__KNBOX_HOME_WIDGET__/);
-  assert.match(markdownHtml, /\/knbox\/home-widget\.js/);
-  assert.match(markdownHtml, /"homeUrl":"\/u\/publicuser"/);
+  assert.doesNotMatch(markdownHtml, /__KNBOX_HOME_WIDGET__/);
+  assert.doesNotMatch(markdownHtml, /\/knbox\/home-widget\.js/);
 
   const { res: redirectRes } = await request(baseUrl, `/u/${user.username}/site`);
   assert.equal(redirectRes.statusCode, 301);
@@ -430,14 +428,12 @@ test("public file routes serve markdown, directory indexes, and safe errors", as
   assert.equal(indexRes.status, 200);
   const indexHtml = await indexRes.text();
   assert.match(indexHtml, /<h1>Site<\/h1>/);
-  assert.match(indexHtml, /__KNBOX_HOME_WIDGET__/);
-  assert.match(indexHtml, /<\/script><script src="\/knbox\/home-widget\.js" defer><\/script><\/body>/);
+  assert.doesNotMatch(indexHtml, /__KNBOX_HOME_WIDGET__/);
+  assert.doesNotMatch(indexHtml, /\/knbox\/home-widget\.js/);
   assert.equal(await fs.readFile(path.join(uploadsDir, "site", "index.html"), "utf8"), originalHtml);
 
   const widgetScriptRes = await fetch(`${baseUrl}/knbox/home-widget.js`);
-  assert.equal(widgetScriptRes.status, 200);
-  assert.match(widgetScriptRes.headers.get("content-type") || "", /javascript/);
-  assert.match(await widgetScriptRes.text(), /knbox-home-widget/);
+  assert.equal(widgetScriptRes.status, 404);
 
   const hiddenRes = await fetch(`${baseUrl}/api/homepage/settings`, {
     method: "PATCH",

@@ -20,11 +20,6 @@ import {
   updateHomepageSettings,
   homepageFontStack,
 } from "./homepage-settings.js";
-import {
-  homeWidgetConfig,
-  homeWidgetScript,
-  injectHomeWidget,
-} from "./home-widget.js";
 import { createAuth, setSessionCookie } from "./auth.js";
 import { createKylithSso, safeReturnTo } from "./kylith-sso.js";
 import {
@@ -121,7 +116,6 @@ export async function createServerApp({
     if (!filesPublicHost) return next();
     if (requestHost(req) !== filesPublicHost) return next();
     if (req.path.startsWith("/u/")) return next();
-    if (req.path === "/knbox/home-widget.js") return next();
     res.status(404).type("text").send("Not found");
   });
   app.use(originGuard({ publicUrl }));
@@ -532,11 +526,6 @@ export async function createServerApp({
     res.status(err.status || 400).json({ error: message });
   });
 
-  app.get("/knbox/home-widget.js", (_req, res) => {
-    res.set("Cache-Control", "public, max-age=86400");
-    res.type("application/javascript").send(homeWidgetScript());
-  });
-
   app.get(["/u/:storageName", "/u/:storageName/"], asyncRoute(async (req, res) => {
     const owner = auth.getUserByStorageName(req.params.storageName);
     if (!owner) return res.status(404).type("html").send(renderNotFoundDocument({ path: req.path }));
@@ -611,24 +600,14 @@ export async function createServerApp({
       res.type("html").send(renderMarkdownDocument(markdown, {
         title: path.basename(file),
         theme: settings?.style,
-        homeWidget: homeWidgetConfig({
-          user: owner,
-          storageName: req.params.storageName,
-          settings,
-        }),
       }));
       return;
     }
 
     if (isHtmlFile(file)) {
       const html = await fs.readFile(file, "utf8");
-      const settings = owner ? getHomepageSettings({ db: auth.db, user: owner }) : null;
       res.set("Cache-Control", "public, max-age=60");
-      res.type("html").send(injectHomeWidget(html, homeWidgetConfig({
-        user: owner,
-        storageName: req.params.storageName,
-        settings,
-      })));
+      res.type("html").send(html);
       return;
     }
 

@@ -3,9 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { homeWidgetMarkup } from "./home-widget.js";
 
-export function renderMarkdownDocument(markdown, { title = "Markdown", theme = "theme-6", homeWidget = null } = {}) {
+export function renderMarkdownDocument(markdown, { title = "Markdown", theme = "theme-6" } = {}) {
   const body = renderToStaticMarkup(
     React.createElement(
       "article",
@@ -28,7 +27,7 @@ export function renderMarkdownDocument(markdown, { title = "Markdown", theme = "
   <title>${escapeHtml(title)}</title>
   <style>${pageStyles()}</style>
 </head>
-${bodyShell(body, { theme, homeWidget })}
+${bodyShell(body, { theme })}
 </html>`;
 }
 
@@ -88,10 +87,9 @@ ${bodyShell(body)}
 </html>`;
 }
 
-function bodyShell(body, { theme = "theme-6", homeWidget = null } = {}) {
+function bodyShell(body, { theme = "theme-6" } = {}) {
   return `<body class="${themeClass(theme)}">
   ${body}
-  ${homeWidgetMarkup(homeWidget)}
 </body>`;
 }
 
