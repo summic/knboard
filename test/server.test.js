@@ -14,7 +14,7 @@ async function withServer(t, options = {}) {
   process.env.KNBOX_DISABLE_WEB_THUMBNAILS = "1";
   const created = await createServerApp({
     dataDir,
-    publicUrl: "https://box.beforeve.com",
+    publicUrl: options.publicUrl || "https://box.kn.run",
     filesPublicUrl: options.filesPublicUrl || "",
     serveWeb: options.serveWeb || false,
   });
@@ -329,25 +329,102 @@ test("public homepage groups content by recent ranges and years", async (t) => {
 });
 
 test("public files host cannot access app APIs", async (t) => {
-  const { auth, baseUrl } = await withServer(t, { filesPublicUrl: "https://b.beforeve.com" });
+  const { auth, baseUrl } = await withServer(t, { filesPublicUrl: "https://files.example.test" });
   const { user } = createUserAndToken(auth);
   const uploadsDir = auth.userUploadsDir(user);
   await fs.mkdir(uploadsDir, { recursive: true });
   await fs.writeFile(path.join(uploadsDir, "index.html"), "<h1>ok</h1>");
 
-  const { res: apiRes } = await request(baseUrl, "/api/auth/config", { headers: { Host: "b.beforeve.com" } });
+  const { res: apiRes } = await request(baseUrl, "/api/auth/config", { headers: { Host: "files.example.test" } });
   assert.equal(apiRes.statusCode, 404);
 
   const { res: widgetRes } = await request(baseUrl, "/knbox/home-widget.js", {
-    headers: { Host: "b.beforeve.com" },
+    headers: { Host: "files.example.test" },
   });
   assert.equal(widgetRes.statusCode, 404);
 
   const { res: fileRes, body } = await request(baseUrl, `/u/${user.username}/index.html`, {
-    headers: { Host: "b.beforeve.com" },
+    headers: { Host: "files.example.test" },
   });
   assert.equal(fileRes.statusCode, 200);
   assert.match(body, /<h1>ok<\/h1>/);
+});
+
+test("wildcard user domains serve public content without app APIs", async (t) => {
+  const { auth, baseUrl } = await withServer(t, { filesPublicUrl: "https://*.box.kn.run" });
+  const { user, token } = createUserAndToken(auth, "publicuser");
+  const uploadsDir = auth.userUploadsDir(user);
+  await fs.mkdir(path.join(uploadsDir, "site"), { recursive: true });
+  await fs.writeFile(path.join(uploadsDir, "readme.md"), "# Hello");
+  await fs.writeFile(path.join(uploadsDir, "site", "index.html"), "<!doctype html><html><body><script src=\"/app.js\"></script><h1>Site</h1></body></html>");
+  await fs.writeFile(path.join(uploadsDir, "app.js"), "console.log('kept as-is');");
+  await fetch(`${baseUrl}/api/homepage/settings`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName: "Public User", style: "theme-2" }),
+  });
+  await fetch(`${baseUrl}/api/files/visibility`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ path: "readme.md", visibility: "public" }),
+  });
+  await fetch(`${baseUrl}/api/files/visibility`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ path: "site/index.html", visibility: "public" }),
+  });
+
+  const { res: apiRes } = await request(baseUrl, "/api/auth/config", { headers: { Host: "publicuser.box.kn.run" } });
+  assert.equal(apiRes.statusCode, 404);
+
+  const { res: homeRes, body: homeHtml } = await request(baseUrl, "/", { headers: { Host: "publicuser.box.kn.run" } });
+  assert.equal(homeRes.statusCode, 200);
+  assert.match(homeHtml, /Public User/);
+  assert.match(homeHtml, /https:\/\/publicuser\.box\.kn\.run\/readme\.md/);
+  assert.match(homeHtml, /由 <a href="https:\/\/box\.kn\.run"[^>]*>knbox<\/a> 提供/);
+  assert.match(homeRes.headers["content-security-policy"] || "", /connect-src 'self'/);
+  assert.match(homeRes.headers["content-security-policy"] || "", /frame-ancestors 'self' https:\/\/box\.kn\.run/);
+
+  const { res: markdownRes, body: markdownHtml } = await request(baseUrl, "/readme.md", {
+    headers: { Host: "publicuser.box.kn.run" },
+  });
+  assert.equal(markdownRes.statusCode, 200);
+  assert.match(markdownHtml, /Hello/);
+  assert.doesNotMatch(markdownRes.headers["content-security-policy"] || "", /img-src 'self' https:/);
+
+  const { res: jsRes, body: jsBody } = await request(baseUrl, "/app.js", { headers: { Host: "publicuser.box.kn.run" } });
+  assert.equal(jsRes.statusCode, 200);
+  assert.equal(jsBody, "console.log('kept as-is');");
+
+  const { res: dirRedirect } = await request(baseUrl, "/site", { headers: { Host: "publicuser.box.kn.run" } });
+  assert.equal(dirRedirect.statusCode, 301);
+  assert.equal(dirRedirect.headers.location, "/site/");
+
+  const { res: siteRes, body: siteHtml } = await request(baseUrl, "/site/", { headers: { Host: "publicuser.box.kn.run" } });
+  assert.equal(siteRes.statusCode, 200);
+  assert.match(siteHtml, /<script src="\/app\.js"><\/script>/);
+});
+
+test("old public paths redirect to canonical kn.run domains", async (t) => {
+  const { baseUrl } = await withServer(t, { filesPublicUrl: "https://*.box.kn.run" });
+
+  const { res: legacyFileRes } = await request(baseUrl, "/u/allen/docs/readme.md?x=1", {
+    headers: { Host: "b.beforeve.com" },
+  });
+  assert.equal(legacyFileRes.statusCode, 308);
+  assert.equal(legacyFileRes.headers.location, "https://allen.box.kn.run/docs/readme.md?x=1");
+
+  const { res: legacyAppRes } = await request(baseUrl, "/api/auth/config", {
+    headers: { Host: "box.beforeve.com" },
+  });
+  assert.equal(legacyAppRes.statusCode, 308);
+  assert.equal(legacyAppRes.headers.location, "https://box.kn.run/api/auth/config");
+
+  const { res: canonicalRes } = await request(baseUrl, "/u/allen", {
+    headers: { Host: "box.kn.run" },
+  });
+  assert.equal(canonicalRes.statusCode, 308);
+  assert.equal(canonicalRes.headers.location, "https://allen.box.kn.run/");
 });
 
 test("thumbnail API serves generated web thumbnails only for authenticated users", async (t) => {
@@ -682,10 +759,11 @@ test("CLI rm and trash empty use the authenticated user's API scope", async (t) 
 });
 
 test("app responses include security headers", async (t) => {
-  const { baseUrl } = await withServer(t, { filesPublicUrl: "https://b.beforeve.com" });
+  const { baseUrl } = await withServer(t, { filesPublicUrl: "https://*.box.kn.run" });
   const { res } = await request(baseUrl, "/api/auth/config");
   assert.equal(res.headers["x-content-type-options"], "nosniff");
   assert.match(res.headers["content-security-policy"] || "", /default-src 'self'/);
+  assert.match(res.headers["content-security-policy"] || "", /frame-src 'self' https:\/\/\*\.box\.kn\.run/);
 });
 
 test("cookie-session write requests reject unexpected origins", async (t) => {

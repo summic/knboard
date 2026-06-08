@@ -105,8 +105,8 @@ jobs:
             --network "${DOCKER_NETWORK}" \
             --env-file "${APP_DIR}/.env" \
             -e KNBOX_DATA_DIR=/data \
-            -e KNBOX_PUBLIC_URL=https://box.beforeve.com \
-            -e KNBOX_FILES_PUBLIC_URL=https://b.beforeve.com \
+            -e KNBOX_PUBLIC_URL=https://box.kn.run \
+            -e 'KNBOX_FILES_PUBLIC_URL=https://*.box.kn.run' \
             -e KNBOX_KYLITH_ISSUER="${KNBOX_KYLITH_ISSUER}" \
             -e KNBOX_KYLITH_CREDENTIALS_FILE=/run/secrets/kylith-credentials.json \
             -e PORT=6789 \
@@ -159,7 +159,7 @@ jobs:
             hostname: "127.0.0.1",
             port: 6789,
             path: "/api/auth/config",
-            headers: { Host: "b.beforeve.com" },
+            headers: { Host: "allen.box.kn.run" },
           }, (res) => {
             res.resume();
             res.on("end", () => process.exit(res.statusCode === 404 ? 0 : 1));
@@ -171,11 +171,11 @@ jobs:
           req.end();
           NODE
 
-          box_auth="$(curl -sS https://box.beforeve.com/api/auth/config)"
+          box_auth="$(curl -sS https://box.kn.run/api/auth/config)"
           printf '%s' "${box_auth}" | grep -q '"enabled":true'
-          b_status="$(curl -sS -o /tmp/knbox-b-domain-check -w '%{http_code}' https://b.beforeve.com/api/auth/config)"
+          b_status="$(curl -sS -o /tmp/knbox-b-domain-check -w '%{http_code}' https://allen.box.kn.run/api/auth/config)"
           test "${b_status}" = "404"
-          b_missing_status="$(curl -sS -o /tmp/knbox-b-missing-check -w '%{http_code}' https://b.beforeve.com/u/missing-release-check)"
+          b_missing_status="$(curl -sS -o /tmp/knbox-b-missing-check -w '%{http_code}' https://missing-release-check.box.kn.run/)"
           test "${b_missing_status}" = "404"
 
           docker image prune -f >/dev/null || true

@@ -106,18 +106,17 @@ export async function createServerApp({
   ensureContentVisibilityTables(auth.db);
   ensureHomepageSettingsTables(auth.db);
   const filesPublicUrl = cleanPublicUrl(rawFilesPublicUrl);
-  const filesPublicHost = filesPublicUrl ? new URL(filesPublicUrl).host.toLowerCase() : null;
+  const filesPublic = parseFilesPublicUrl(filesPublicUrl);
+  const filesPublicHost = filesPublic?.host || null;
+  const legacyPublicUrls = parseLegacyPublicUrls(process.env.KNBOX_LEGACY_PUBLIC_URLS);
   const kylithSso = createKylithSso({ publicUrl, sessionSecret: auth.sessionSecret });
   const fileUpload = createFileUploadMiddleware({ dataDir });
   const app = express();
   app.disable("x-powered-by");
-  app.use(securityHeaders({ filesPublicHost, filesPublicUrl }));
-  app.use((req, res, next) => {
-    if (!filesPublicHost) return next();
-    if (requestHost(req) !== filesPublicHost) return next();
-    if (req.path.startsWith("/u/")) return next();
-    res.status(404).type("text").send("Not found");
-  });
+  app.use(legacyDomainRedirect({ publicUrl, filesPublic, legacyPublicUrls }));
+  app.use(canonicalPublicPathRedirect({ publicUrl, filesPublic }));
+  app.use(securityHeaders({ filesPublic, filesPublicUrl }));
+  app.use(publicHostGate({ filesPublic }));
   app.use(originGuard({ publicUrl }));
   app.use(auth.loadUser);
 
@@ -526,8 +525,8 @@ export async function createServerApp({
     res.status(err.status || 400).json({ error: message });
   });
 
-  app.get(["/u/:storageName", "/u/:storageName/"], asyncRoute(async (req, res) => {
-    const owner = auth.getUserByStorageName(req.params.storageName);
+  async function sendPublicHomepage(storageName, req, res) {
+    const owner = auth.getUserByStorageName(storageName);
     if (!owner) return res.status(404).type("html").send(renderNotFoundDocument({ path: req.path }));
     const settings = getHomepageSettings({ db: auth.db, user: owner });
     const listing = await listPublishedContent({
@@ -544,18 +543,19 @@ export async function createServerApp({
       includePrivate: false,
       limit: 200,
     });
-    res.set("Cache-Control", "public, max-age=60");
+    setPublicContentHeaders(res, { publicUrl, maxAge: 60 });
     return res.type("html").send(renderUserHomepage({
       user: owner,
       items: listing.items,
       settings,
+      publicUrl,
     }));
-  }));
+  }
 
-  app.get("/u/:storageName/*", asyncRoute(async (req, res) => {
-    const owner = auth.getUserByStorageName(req.params.storageName);
-    const root = path.resolve(auth.publicUploadsDir(req.params.storageName));
-    const rel = safePublicFilePath(req.params[0]);
+  async function sendPublicFile(storageName, relInput, req, res) {
+    const owner = auth.getUserByStorageName(storageName);
+    const root = path.resolve(auth.publicUploadsDir(storageName));
+    const rel = safePublicFilePath(relInput);
     let file = path.resolve(root, rel);
     assertInside(root, file);
 
@@ -584,7 +584,7 @@ export async function createServerApp({
         recordFileAccess({
           db: auth.db,
           user: owner,
-          storageName: req.params.storageName,
+          storageName,
           filePath: finalRel,
           kind: accessKind,
         });
@@ -596,7 +596,7 @@ export async function createServerApp({
     if (isMarkdownFile(file)) {
       const markdown = await fs.readFile(file, "utf8");
       const settings = owner ? getHomepageSettings({ db: auth.db, user: owner }) : null;
-      res.set("Cache-Control", "public, max-age=60");
+      setPublicContentHeaders(res, { publicUrl, maxAge: 60 });
       res.type("html").send(renderMarkdownDocument(markdown, {
         title: path.basename(file),
         theme: settings?.style,
@@ -606,17 +606,34 @@ export async function createServerApp({
 
     if (isHtmlFile(file)) {
       const html = await fs.readFile(file, "utf8");
-      res.set("Cache-Control", "public, max-age=60");
+      setPublicContentHeaders(res, { publicUrl, maxAge: 60 });
       res.type("html").send(html);
       return;
     }
 
-    res.set("Cache-Control", "public, max-age=300");
+    setPublicContentHeaders(res, { publicUrl, maxAge: 300 });
     res.sendFile(file);
+  }
+
+  app.get(["/u/:storageName", "/u/:storageName/"], asyncRoute(async (req, res, next) => {
+    if (publicRequestContext(req, filesPublic).mode === "wildcard") return next();
+    return sendPublicHomepage(req.params.storageName, req, res);
+  }));
+
+  app.get("/u/:storageName/*", asyncRoute(async (req, res, next) => {
+    if (publicRequestContext(req, filesPublic).mode === "wildcard") return next();
+    return sendPublicFile(req.params.storageName, req.params[0], req, res);
+  }));
+
+  app.get(["/", "/*"], asyncRoute(async (req, res, next) => {
+    const context = publicRequestContext(req, filesPublic);
+    if (context.mode !== "wildcard") return next();
+    if (req.path === "/") return sendPublicHomepage(context.storageName, req, res);
+    return sendPublicFile(context.storageName, req.path.slice(1), req, res);
   }));
 
   app.use((req, res, next) => {
-    if (filesPublicHost && requestHost(req) === filesPublicHost) {
+    if (publicRequestContext(req, filesPublic).isPublicHost) {
       return res.status(404).type("text").send("Not found");
     }
     return next();
@@ -658,7 +675,7 @@ export async function startServer({ port = 6789, open = false } = {}) {
   const url = `http://localhost:${actualPort}`;
   console.log(`\n  KN Box data dir ${dataDir}`);
   if (kylithSso.configured) console.log(`      KYLITH SSO redirect ${kylithSso.redirectUri}`);
-  if (filesPublicUrl) console.log(`      public files ${filesPublicUrl}/u/<username>/...`);
+  if (filesPublicUrl) console.log(`      public files ${publicFilesLogUrl(filesPublicUrl)}`);
   console.log(`      ${dev ? "API on" : "open"} ${url}\n`);
 
   if (open && !dev) {
@@ -672,7 +689,10 @@ export async function startServer({ port = 6789, open = false } = {}) {
 }
 
 function publicFileBasePath({ auth, user, filesPublicUrl }) {
-  const base = `/u/${encodeURIComponent(auth.userStorageName(user))}`;
+  const storageName = auth.userStorageName(user);
+  const filesPublic = parseFilesPublicUrl(filesPublicUrl);
+  if (filesPublic?.wildcardSuffix) return publicUserBaseUrl({ filesPublic, storageName });
+  const base = `/u/${encodeURIComponent(storageName)}`;
   return filesPublicUrl ? `${filesPublicUrl}${base}` : base;
 }
 
@@ -727,7 +747,7 @@ async function sendWebThumbnail({ auth, user, publicUrl, filesPublicUrl, rel, re
   return res.sendFile(thumb.path, { dotfiles: "allow" });
 }
 
-function renderUserHomepage({ user, items, settings }) {
+function renderUserHomepage({ user, items, settings, publicUrl }) {
   const homepageName = settings?.displayName || "Untitled";
   const style = settings?.style || "theme-6";
   const title = homepageName;
@@ -860,7 +880,7 @@ function renderUserHomepage({ user, items, settings }) {
       ${rows}
       ${count ? `<div class="end-note"><span>The end.</span></div>` : ""}
     </div>
-    <footer>由 <a href="https://box.beforeve.com" target="_blank" rel="noreferrer noopener">knbox</a> 提供</footer>
+    <footer>由 <a href="https://box.kn.run" target="_blank" rel="noreferrer noopener">knbox</a> 提供</footer>
   </main>
 </body>
 </html>`;
@@ -938,19 +958,162 @@ function cleanPublicUrl(value) {
   return url.toString().replace(/\/+$/, "");
 }
 
+function parseFilesPublicUrl(filesPublicUrl) {
+  if (!filesPublicUrl) return null;
+  const url = new URL(filesPublicUrl);
+  const hostname = url.hostname.toLowerCase();
+  return {
+    url,
+    protocol: url.protocol,
+    host: url.host.toLowerCase(),
+    hostname,
+    port: url.port,
+    origin: url.origin,
+    wildcardSuffix: hostname.startsWith("*.") ? hostname.slice(2) : "",
+  };
+}
+
+function parseLegacyPublicUrls(value) {
+  const raw = value === undefined
+    ? "https://box.beforeve.com,https://b.beforeve.com"
+    : String(value || "");
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => new URL(item).hostname.toLowerCase());
+}
+
 function requestHost(req) {
   return String(req.headers.host || "").toLowerCase();
 }
 
-function securityHeaders({ filesPublicHost, filesPublicUrl }) {
+function requestHostname(req) {
+  const host = requestHost(req);
+  if (host.startsWith("[")) return host.slice(1, host.indexOf("]"));
+  return host.split(":")[0];
+}
+
+function requestSearch(req) {
+  const index = req.originalUrl.indexOf("?");
+  return index >= 0 ? req.originalUrl.slice(index) : "";
+}
+
+function publicRequestContext(req, filesPublic) {
+  if (!filesPublic) return { isPublicHost: false, mode: "none", storageName: "" };
+  const hostname = requestHostname(req);
+  if (filesPublic.wildcardSuffix) {
+    const suffix = `.${filesPublic.wildcardSuffix}`;
+    if (!hostname.endsWith(suffix)) return { isPublicHost: false, mode: "none", storageName: "" };
+    const storageName = hostname.slice(0, -suffix.length);
+    if (!storageName || storageName.includes(".")) return { isPublicHost: false, mode: "none", storageName: "" };
+    return { isPublicHost: true, mode: "wildcard", storageName };
+  }
+  if (hostname === filesPublic.hostname) return { isPublicHost: true, mode: "exact", storageName: "" };
+  return { isPublicHost: false, mode: "none", storageName: "" };
+}
+
+function legacyDomainRedirect({ publicUrl, filesPublic, legacyPublicUrls }) {
+  const publicHost = new URL(publicUrl).hostname.toLowerCase();
+  const legacyHosts = new Set(legacyPublicUrls.filter((host) => host !== publicHost && host !== filesPublic?.hostname));
+  return (req, res, next) => {
+    if (!legacyHosts.has(requestHostname(req))) return next();
+    const publicMatch = publicPathMatch(req.path);
+    if (publicMatch && filesPublic) {
+      return res.redirect(308, `${publicUserBaseUrl({
+        filesPublic,
+        storageName: publicMatch.storageName,
+      })}${publicMatch.path}${requestSearch(req)}`);
+    }
+    const target = new URL(req.originalUrl, publicUrl);
+    return res.redirect(308, target.toString());
+  };
+}
+
+function canonicalPublicPathRedirect({ publicUrl, filesPublic }) {
+  const publicHost = new URL(publicUrl).hostname.toLowerCase();
+  return (req, res, next) => {
+    if (!filesPublic?.wildcardSuffix || requestHostname(req) !== publicHost) return next();
+    const publicMatch = publicPathMatch(req.path);
+    if (!publicMatch) return next();
+    return res.redirect(308, `${publicUserBaseUrl({
+      filesPublic,
+      storageName: publicMatch.storageName,
+    })}${publicMatch.path}${requestSearch(req)}`);
+  };
+}
+
+function publicPathMatch(pathname) {
+  const match = String(pathname || "").match(/^\/u\/([^/]+)(\/.*)?$/);
+  if (!match) return null;
+  return {
+    storageName: decodeURIComponent(match[1]),
+    path: match[2] || "/",
+  };
+}
+
+function publicHostGate({ filesPublic }) {
+  return (req, res, next) => {
+    const context = publicRequestContext(req, filesPublic);
+    if (!context.isPublicHost) return next();
+    if (req.path === "/api" || req.path.startsWith("/api/")) {
+      return res.status(404).type("text").send("Not found");
+    }
+    if (context.mode === "exact" && !req.path.startsWith("/u/")) {
+      return res.status(404).type("text").send("Not found");
+    }
+    return next();
+  };
+}
+
+function publicUserBaseUrl({ filesPublic, storageName }) {
+  const safeName = String(storageName || "").trim().toLowerCase();
+  if (!safeName) return filesPublic.origin;
+  if (!filesPublic.wildcardSuffix) return `${filesPublic.origin}/u/${encodeURIComponent(safeName)}`;
+  const port = filesPublic.port ? `:${filesPublic.port}` : "";
+  return `${filesPublic.protocol}//${safeName}.${filesPublic.wildcardSuffix}${port}`;
+}
+
+function publicFilesLogUrl(filesPublicUrl) {
+  const filesPublic = parseFilesPublicUrl(filesPublicUrl);
+  if (filesPublic?.wildcardSuffix) return `${filesPublic.protocol}//<username>.${filesPublic.wildcardSuffix}${filesPublic.port ? `:${filesPublic.port}` : ""}/...`;
+  return `${filesPublicUrl}/u/<username>/...`;
+}
+
+function setPublicContentHeaders(res, { publicUrl, maxAge }) {
+  res.set("Cache-Control", `public, max-age=${maxAge}`);
+  res.set("Content-Security-Policy", publicContentSecurityPolicy({ publicUrl }));
+}
+
+function publicContentSecurityPolicy({ publicUrl }) {
+  const appOrigin = new URL(publicUrl).origin;
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "media-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    `frame-ancestors 'self' ${appOrigin}`,
+  ].join("; ");
+}
+
+function securityHeaders({ filesPublic, filesPublicUrl }) {
   const frameSources = ["'self'"];
-  if (filesPublicUrl) frameSources.push(new URL(filesPublicUrl).origin);
+  if (filesPublic?.wildcardSuffix) frameSources.push(`${filesPublic.protocol}//*.${filesPublic.wildcardSuffix}`);
+  else if (filesPublicUrl) frameSources.push(new URL(filesPublicUrl).origin);
   return (req, res, next) => {
     res.set("X-Content-Type-Options", "nosniff");
     res.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     res.set("Cross-Origin-Opener-Policy", "same-origin");
-    if (!req.path.startsWith("/u/") && (!filesPublicHost || requestHost(req) !== filesPublicHost)) {
+    if (!req.path.startsWith("/u/") && !publicRequestContext(req, filesPublic).isPublicHost) {
       res.set(
         "Content-Security-Policy",
         [

@@ -9,7 +9,7 @@ KN Box 是一个面向公司内部使用的文档和静态网页托管服务。�
 - 提供 Express 服务端和 React 网页界面
 - 只通过 KYLITH OAuth 登录，使用 HTTP-only Cookie 保存登录态
 - 登录会话写入 SQLite，服务重启后不会踢掉已登录用户
-- 每个用户拥有独立的个人目录，存储目录按 username 隔离，访问路径为 `/u/<username>/<path>`
+- 每个用户拥有独立的个人目录，存储目录按 username 隔离；生产环境公开访问使用 `<username>.box.kn.run/<path>`
 - 支持上传 Markdown、网页文件和图片文件，单文件最大 10 MB
 - 默认用户容量配额为 1 GB，并限制上传目录深度、单批文件数和单批总大小
 - 上传文件夹时保留目录结构，自动忽略隐藏文件、隐藏目录和 `.DS_Store`
@@ -79,12 +79,12 @@ data/
 export PORT=6789
 export KNBOX_DATA_DIR=/var/lib/knbox
 export KNBOX_SESSION_SECRET='change-this-session-secret'
-export KNBOX_PUBLIC_URL='https://box.beforeve.com'
-export KNBOX_FILES_PUBLIC_URL='https://b.beforeve.com'
+export KNBOX_PUBLIC_URL='https://box.kn.run'
+export KNBOX_FILES_PUBLIC_URL='https://*.box.kn.run'
 export KNBOX_USER_QUOTA_BYTES=1073741824
 ```
 
-生产环境使用两个域名：`box.beforeve.com` 用于应用和登录，`b.beforeve.com` 只用于公开上传文件。详细部署说明见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+生产环境使用泛域名隔离：`box.kn.run` 用于应用和登录，`*.box.kn.run` 用于用户公开页面。旧的 `/u/<username>/<path>` 只用于本地兼容和旧域名跳转。详细部署说明见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ## 数据目录
 
@@ -158,7 +158,7 @@ KNBOX_DATA_DIR=/data node scripts/set-super-admin.mjs user@example.com
 KN Box 提供 `knbox` CLI。默认服务地址是：
 
 ```text
-https://box.beforeve.com
+https://box.kn.run
 ```
 
 常用命令：
@@ -267,7 +267,7 @@ src/cli/index.js
 
 KN Box 是文件预览服务，主要用于公司内网中的临时分享和查看。它不是长期归档系统，也不承诺上传文件的长期可靠存储。
 
-生产环境应始终配置 `KNBOX_FILES_PUBLIC_URL`，把公开上传文件放在独立域名下。应用登录和 API 使用 `box.beforeve.com`，公开文件使用 `b.beforeve.com`；不要把会话 Cookie 配置到 `.beforeve.com` 这样的父域。
+生产环境应始终配置 `KNBOX_FILES_PUBLIC_URL=https://*.box.kn.run`，把公开上传文件放在用户子域名下。应用登录和 API 使用 `box.kn.run`，公开文件使用 `<username>.box.kn.run`；不要把会话 Cookie 配置到 `.box.kn.run` 这样的父域。
 
 请遵守公司安全制度，不要上传或分享敏感信息。文件名建议使用英文、数字、短横线和下划线，尽量避免中文、空格和全角符号，以免分享链接在聊天软件中变得不易读或被截断。
 
