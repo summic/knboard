@@ -141,7 +141,7 @@ test("user files list, search, create, delete, restore, and empty trash", async 
   assert.equal((await searchUserFiles({ filesDir: root, publicBasePath: "/u/alice", query: "guide" })).items.length, 1);
   assert.equal((await getUserStorageUsage({ filesDir: root, quotaBytes: 99 })).quotaBytes, 99);
 
-  const deleted = await deleteUserFiles({ filesDir: root, paths: ["docs", "docs/guide.md"], confirmName: "docs" });
+  const deleted = await deleteUserFiles({ filesDir: root, paths: ["docs", "docs/guide.md"], confirmName: "confirm" });
   assert.equal(deleted.deleted, 1);
   assert.equal(await exists(path.join(root, "docs")), false);
   const trash = await listTrashEntries({ filesDir: root });
@@ -152,7 +152,7 @@ test("user files list, search, create, delete, restore, and empty trash", async 
   assert.equal(restored.restored, true);
   assert.equal(await exists(path.join(root, "docs", "guide.md")), true);
 
-  await deleteUserFiles({ filesDir: root, paths: ["docs/site.html"], confirmName: "site.html" });
+  await deleteUserFiles({ filesDir: root, paths: ["docs/site.html"], confirmName: "confirm" });
   assert.equal(await exists(path.join(root, "docs", webThumbnailRelativePath("site.html"))), false);
   assert.equal((await emptyTrash({ filesDir: root })).deleted, 1);
   assert.equal((await listTrashEntries({ filesDir: root })).items.length, 0);

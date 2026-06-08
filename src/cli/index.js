@@ -321,11 +321,10 @@ async function removeRemote(args) {
   const rawTargets = args._.slice(1);
   if (!rawTargets.length) throw new CliError("Usage: knbox rm <path> [path...]");
   const paths = rawTargets.map((target) => resolveRemotePath(target, config.cwd));
-  const confirmName = path.posix.basename(paths[0]);
-  if (!confirmName) throw new CliError("Refusing to remove the root directory.");
+  if (!path.posix.basename(paths[0])) throw new CliError("Refusing to remove the root directory.");
   const result = await apiRequest(config, "/api/files", {
     method: "DELETE",
-    json: { paths, confirmName },
+    json: { paths, confirmName: "confirm" },
   });
   const output = { paths, deleted: result.deleted || 0 };
   if (args.json) {

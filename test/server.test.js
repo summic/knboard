@@ -121,7 +121,7 @@ test("protected APIs require authentication", async (t) => {
     fetch(`${baseUrl}/api/files`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paths: ["a.md"], confirmName: "a.md" }),
+      body: JSON.stringify({ paths: ["a.md"], confirmName: "confirm" }),
     }),
     fetch(`${baseUrl}/api/trash`, { method: "DELETE" }),
   ];
@@ -131,7 +131,7 @@ test("protected APIs require authentication", async (t) => {
 });
 
 test("admin APIs require admin role and are scoped by explicit admin route", async (t) => {
-  const { auth, baseUrl } = await withServer(t);
+  const { auth, baseUrl } = await withServer(t, { filesPublicUrl: "https://*.box.kn.run" });
   const normal = createUserAndToken(auth, "normal");
   const admin = createUserAndToken(auth, "admin");
   auth.db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.user.id);
@@ -145,7 +145,9 @@ test("admin APIs require admin role and are scoped by explicit admin route", asy
     headers: { Authorization: `Bearer ${admin.token}` },
   });
   assert.equal(adminUsersRes.status, 200);
-  assert.equal((await readJson(adminUsersRes)).items.length, 2);
+  const adminUsersBody = await readJson(adminUsersRes);
+  assert.equal(adminUsersBody.items.length, 2);
+  assert.equal(adminUsersBody.items.find((item) => item.username === normal.user.username).homepageUrl, "https://normal.box.kn.run/");
 
   const normalDir = auth.userUploadsDir(normal.user);
   await fs.mkdir(normalDir, { recursive: true });
@@ -254,6 +256,7 @@ test("content API lists published markdown and webpages across folders", async (
   assert.equal(settingsBody.settings.displayName, "内容空间");
   assert.equal(settingsBody.settings.style, "theme-4");
   assert.equal(settingsBody.settings.showHomeLink, true);
+  assert.equal(settingsBody.homepageUrl, `/u/${user.username}/`);
 
   const editableHomeRes = await fetch(`${baseUrl}/u/${user.username}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -358,11 +361,13 @@ test("wildcard user domains serve public content without app APIs", async (t) =>
   await fs.writeFile(path.join(uploadsDir, "readme.md"), "# Hello");
   await fs.writeFile(path.join(uploadsDir, "site", "index.html"), "<!doctype html><html><body><script src=\"/app.js\"></script><h1>Site</h1></body></html>");
   await fs.writeFile(path.join(uploadsDir, "app.js"), "console.log('kept as-is');");
-  await fetch(`${baseUrl}/api/homepage/settings`, {
+  const settingsRes = await fetch(`${baseUrl}/api/homepage/settings`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ displayName: "Public User", style: "theme-2" }),
   });
+  const settingsBody = await readJson(settingsRes);
+  assert.equal(settingsBody.homepageUrl, "https://publicuser.box.kn.run/");
   await fetch(`${baseUrl}/api/files/visibility`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -403,6 +408,28 @@ test("wildcard user domains serve public content without app APIs", async (t) =>
   const { res: siteRes, body: siteHtml } = await request(baseUrl, "/site/", { headers: { Host: "publicuser.box.kn.run" } });
   assert.equal(siteRes.statusCode, 200);
   assert.match(siteHtml, /<script src="\/app\.js"><\/script>/);
+});
+
+test("root index file overrides the generated public homepage", async (t) => {
+  const { auth, baseUrl } = await withServer(t, { filesPublicUrl: "https://*.box.kn.run" });
+  const { user, token } = createUserAndToken(auth, "customhome");
+  const uploadsDir = auth.userUploadsDir(user);
+  await fs.mkdir(uploadsDir, { recursive: true });
+  await fs.writeFile(path.join(uploadsDir, "index.html"), "<!doctype html><html><body><script src=\"/home.js\"></script><h1>Custom Home</h1></body></html>");
+  await fs.writeFile(path.join(uploadsDir, "home.js"), "console.log('custom');");
+  await fetch(`${baseUrl}/api/homepage/settings`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName: "System Home", style: "theme-2" }),
+  });
+
+  const { res, body } = await request(baseUrl, "/", { headers: { Host: "customhome.box.kn.run" } });
+  assert.equal(res.statusCode, 200);
+  assert.match(body, /Custom Home/);
+  assert.match(body, /<script src="\/home\.js"><\/script>/);
+  assert.doesNotMatch(body, /id="homepage-title"/);
+  assert.doesNotMatch(body, /System Home/);
+  assert.match(res.headers["content-security-policy"] || "", /connect-src 'self'/);
 });
 
 test("old public paths redirect to canonical kn.run domains", async (t) => {
@@ -641,7 +668,7 @@ test("delete moves files to trash and restore returns them to original path", as
   const deleteRes = await fetch(`${baseUrl}/api/files`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ paths: ["docs/note.md"], confirmName: "note.md" }),
+    body: JSON.stringify({ paths: ["docs/note.md"], confirmName: "confirm" }),
   });
   assert.equal(deleteRes.status, 200);
   assert.equal(await exists(path.join(uploadsDir, "docs", "note.md")), false);
@@ -678,7 +705,7 @@ test("delete API is scoped to the authenticated user's files", async (t) => {
   const deleteOwnRes = await fetch(`${baseUrl}/api/files`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ paths: ["shared.md"], confirmName: "shared.md" }),
+    body: JSON.stringify({ paths: ["shared.md"], confirmName: "confirm" }),
   });
   assert.equal(deleteOwnRes.status, 200);
   assert.equal(await exists(path.join(aliceDir, "shared.md")), false);
@@ -688,7 +715,7 @@ test("delete API is scoped to the authenticated user's files", async (t) => {
   const traversalRes = await fetch(`${baseUrl}/api/files`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ paths: ["../bob/secret.md"], confirmName: "secret.md" }),
+    body: JSON.stringify({ paths: ["../bob/secret.md"], confirmName: "confirm" }),
   });
   console.error = originalConsoleError;
   assert.equal(traversalRes.status, 400);
@@ -697,7 +724,7 @@ test("delete API is scoped to the authenticated user's files", async (t) => {
   const missingOwnRes = await fetch(`${baseUrl}/api/files`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${alice.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ paths: ["secret.md"], confirmName: "secret.md" }),
+    body: JSON.stringify({ paths: ["secret.md"], confirmName: "confirm" }),
   });
   assert.equal(missingOwnRes.status, 200);
   assert.equal((await readJson(missingOwnRes)).deleted, 0);
@@ -719,7 +746,7 @@ test("empty trash API only clears the authenticated user's trash", async (t) => 
     const res = await fetch(`${baseUrl}/api/files`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ paths: ["old.md"], confirmName: "old.md" }),
+      body: JSON.stringify({ paths: ["old.md"], confirmName: "confirm" }),
     });
     assert.equal(res.status, 200);
   }

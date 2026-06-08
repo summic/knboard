@@ -41,6 +41,7 @@ type ContentViewMode = "list" | "cards";
 
 const FILE_VIEW_KEY = "knbox.fileView";
 const CONTENT_VIEW_KEY = "knbox.contentView";
+const DELETE_CONFIRM_TEXT = "confirm";
 const HOMEPAGE_THEMES: Array<{ value: HomepageTheme; label: string; color: string }> = [
   { value: "theme-1", label: "青绿", color: "oklch(0.9802 0.0074 151.89)" },
   { value: "theme-2", label: "淡紫", color: "oklch(0.9822 0.0118 313.22)" },
@@ -106,6 +107,7 @@ export function ContentHome({
   const [settingsTheme, setSettingsTheme] = useState<HomepageTheme>("theme-6");
   const [settingsFont, setSettingsFont] = useState<HomepageFont>("songti");
   const [settingsShowHomeLink, setSettingsShowHomeLink] = useState(true);
+  const [homepageUrl, setHomepageUrl] = useState(`/u/${encodeURIComponent(user.username)}/`);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -141,6 +143,7 @@ export function ContentHome({
         setSettingsTheme(res.settings.style);
         setSettingsFont(res.settings.titleFont);
         setSettingsShowHomeLink(res.settings.showHomeLink);
+        setHomepageUrl(res.homepageUrl);
       })
       .catch((err: unknown) => {
         if (!canceled) setSettingsError(err instanceof Error ? err.message : "主页设置加载失败");
@@ -203,6 +206,7 @@ export function ContentHome({
       setSettingsTheme(result.settings.style);
       setSettingsFont(result.settings.titleFont);
       setSettingsShowHomeLink(result.settings.showHomeLink);
+      setHomepageUrl(result.homepageUrl);
       setSettingsOpen(false);
     } catch (err: unknown) {
       setSettingsError(err instanceof Error ? err.message : "主页设置保存失败");
@@ -229,6 +233,7 @@ export function ContentHome({
       setSettingsTheme(result.settings.style);
       setSettingsFont(result.settings.titleFont);
       setSettingsShowHomeLink(result.settings.showHomeLink);
+      setHomepageUrl(result.homepageUrl);
       setSettingsMessage("主题已保存");
     } catch (err: unknown) {
       setSettingsError(err instanceof Error ? err.message : "主题保存失败");
@@ -236,6 +241,8 @@ export function ContentHome({
       setSettingsSaving(false);
     }
   };
+
+  const homepageHref = absoluteUrl(homepageUrl);
 
   return (
     <div className={`fm-shell ${preview ? "has-preview" : ""}`}>
@@ -246,8 +253,9 @@ export function ContentHome({
             <p className="fm-desc">按最近更新排列的文档和网页。</p>
           </div>
           <div className="content-home-actions">
-            <a className="content-home-link" href={`/u/${encodeURIComponent(user.username)}`} target="_blank" rel="noreferrer">
-              个人主页
+            <a className="content-home-link" href={homepageHref} target="_blank" rel="noreferrer" title={homepageHref}>
+              <Globe size={15} aria-hidden />
+              <span>{homepageHref}</span>
             </a>
             <button className="content-home-settings" type="button" title="主页设置" aria-label="主页设置" onClick={() => setSettingsOpen(true)}>
               <Settings size={16} aria-hidden />
@@ -532,7 +540,6 @@ export function Home({
     () => entries.filter((entry) => checkedPaths.has(entry.path)),
     [entries, checkedPaths]
   );
-  const deleteConfirmName = checkedEntries[0]?.name ?? "";
   const deletingDirectory = checkedEntries.some((entry) => entry.kind === "directory");
 
   const toggleChecked = (entry: FileEntry) => {
@@ -552,12 +559,12 @@ export function Home({
   };
 
   const confirmDeleteChecked = async () => {
-    if (!checkedEntries.length || deleteInput !== deleteConfirmName) return;
+    if (!checkedEntries.length || deleteInput !== DELETE_CONFIRM_TEXT) return;
     const paths = checkedEntries.map((entry) => entry.path);
     setDeleteBusy(true);
     setDeleteError(null);
     try {
-      await api.deleteFiles(paths, deleteConfirmName);
+      await api.deleteFiles(paths, DELETE_CONFIRM_TEXT);
       setCheckedPaths(new Set());
       setPreview((current) => {
         if (!current || !paths.includes(current.path)) return current;
@@ -763,7 +770,6 @@ export function Home({
       {deleteDialogOpen && (
         <DeleteConfirmDialog
           count={checkedEntries.length}
-          confirmName={deleteConfirmName}
           hasDirectory={deletingDirectory}
           value={deleteInput}
           busy={deleteBusy}
@@ -798,7 +804,6 @@ function EmptyGuide() {
 
 function DeleteConfirmDialog({
   count,
-  confirmName,
   hasDirectory,
   value,
   busy,
@@ -808,7 +813,6 @@ function DeleteConfirmDialog({
   onConfirm,
 }: {
   count: number;
-  confirmName: string;
   hasDirectory: boolean;
   value: string;
   busy: boolean;
@@ -830,7 +834,7 @@ function DeleteConfirmDialog({
           </p>
         )}
         <label className="fm-dialog-field">
-          <span>请输入 <strong>{confirmName}</strong> 确认删除</span>
+          <span>请输入 <strong>{DELETE_CONFIRM_TEXT}</strong> 确认删除</span>
           <input
             autoFocus
             value={value}
@@ -843,14 +847,14 @@ function DeleteConfirmDialog({
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") onCancel();
-              if (event.key === "Enter" && value === confirmName) onConfirm();
+              if (event.key === "Enter" && value === DELETE_CONFIRM_TEXT) onConfirm();
             }}
           />
         </label>
         {error && <div className="fm-dialog-error">{error}</div>}
         <div className="fm-dialog-actions">
           <button type="button" onClick={onCancel} disabled={busy}>取消</button>
-          <button type="button" className="is-danger" onClick={onConfirm} disabled={busy || value !== confirmName}>
+          <button type="button" className="is-danger" onClick={onConfirm} disabled={busy || value !== DELETE_CONFIRM_TEXT}>
             {busy ? "删除中..." : "确认删除"}
           </button>
         </div>

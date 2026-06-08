@@ -5,17 +5,21 @@ import { Home } from "./Home";
 
 export function AdminPage({
   currentUser,
+  page,
   selectedUserId,
   dir,
   onHome,
+  onUsers,
   onSelectUser,
   onUserDirChange,
   onPreviewOpen,
 }: {
   currentUser: User;
+  page: "home" | "users" | "user";
   selectedUserId?: number | null;
   dir: string;
   onHome: () => void;
+  onUsers: () => void;
   onSelectUser: (userId: number) => void;
   onUserDirChange: (userId: number, dir: string) => void;
   onPreviewOpen?: () => void;
@@ -111,83 +115,25 @@ export function AdminPage({
     },
     [selectedUser]
   );
+  const activePage = selectedUser ? "user" : page;
 
   return (
     <section className="admin-page">
       <aside className="admin-menu" aria-label="管理菜单">
         <div className="admin-head">
           <h1>管理</h1>
-          <span>{users.length} 个用户</span>
+          <span>{loading ? "加载中" : `${users.length} 个用户`}</span>
         </div>
         <nav className="admin-menu-nav">
-          <button className={`admin-menu-item ${!selectedUser ? "is-active" : ""}`} onClick={onHome}>
+          <button className={`admin-menu-item ${activePage === "home" ? "is-active" : ""}`} onClick={onHome}>
             <HomeIcon size={17} aria-hidden />
             <span>首页</span>
           </button>
+          <button className={`admin-menu-item ${activePage === "users" || activePage === "user" ? "is-active" : ""}`} onClick={onUsers}>
+            <Users size={17} aria-hidden />
+            <span>用户</span>
+          </button>
         </nav>
-        <div className="admin-menu-section">
-          <Users size={14} aria-hidden />
-          <span>用户</span>
-        </div>
-        {error && <div className="admin-error">{error}</div>}
-        {loading ? (
-          <div className="admin-empty">加载中…</div>
-        ) : users.length ? (
-          <div className="admin-user-list">
-            {users.map((item) => (
-              <div className={`admin-user-row ${item.id === selectedUserId ? "is-active" : ""}`} key={item.id}>
-                <button type="button" className="admin-user-select" onClick={() => onSelectUser(item.id)}>
-                  <span className="admin-user-avatar" aria-hidden>
-                    {item.avatarUrl ? (
-                      <img src={item.avatarUrl} alt="" referrerPolicy="no-referrer" />
-                    ) : (
-                      (item.name || item.username).slice(0, 1).toUpperCase()
-                    )}
-                  </span>
-                  <span className="admin-user-main">
-                    <strong>{item.name || item.username}</strong>
-                    <span>{item.email || item.username}</span>
-                  </span>
-                </button>
-                {item.role === "super_admin" ? (
-                  <span className="admin-role is-super">
-                    <ShieldCheck size={13} aria-hidden />
-                    超级管理员
-                  </span>
-                ) : item.role === "admin" ? (
-                  canPromote ? (
-                    <button
-                      type="button"
-                      className="admin-promote is-revoke"
-                      onClick={() => void revokeAdmin(item)}
-                      disabled={promotingId === item.id}
-                    >
-                      {promotingId === item.id ? "取消中" : "取消管理员"}
-                    </button>
-                  ) : (
-                    <span className="admin-role">
-                      <ShieldCheck size={13} aria-hidden />
-                      管理员
-                    </span>
-                  )
-                ) : !canPromote ? (
-                  <span className="admin-role is-user">用户</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="admin-promote"
-                    onClick={() => void promote(item)}
-                    disabled={promotingId === item.id}
-                  >
-                    {promotingId === item.id ? "设置中" : "设为管理员"}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="admin-empty">还没有用户。</div>
-        )}
       </aside>
 
       <div className="admin-main">
@@ -204,6 +150,19 @@ export function AdminPage({
             description={`${selectedUser.email || selectedUser.username} 的文件，只读浏览。`}
             onPreviewOpen={onPreviewOpen}
           />
+        ) : page === "user" ? (
+          <AdminMissingUser loading={loading} error={error} />
+        ) : page === "users" ? (
+          <AdminUsersPage
+            users={users}
+            loading={loading}
+            error={error}
+            canPromote={canPromote}
+            promotingId={promotingId}
+            onSelectUser={onSelectUser}
+            onPromote={promote}
+            onRevokeAdmin={revokeAdmin}
+          />
         ) : (
           <AdminStatsHome
             stats={stats}
@@ -216,6 +175,149 @@ export function AdminPage({
         )}
       </div>
     </section>
+  );
+}
+
+function AdminUsersPage({
+  users,
+  loading,
+  error,
+  canPromote,
+  promotingId,
+  onSelectUser,
+  onPromote,
+  onRevokeAdmin,
+}: {
+  users: User[];
+  loading: boolean;
+  error: string | null;
+  canPromote: boolean;
+  promotingId: number | null;
+  onSelectUser: (userId: number) => void;
+  onPromote: (user: User) => Promise<void>;
+  onRevokeAdmin: (user: User) => Promise<void>;
+}) {
+  return (
+    <section className="admin-users-page">
+      <header className="admin-users-head">
+        <div>
+          <h1>用户</h1>
+          <p>查看用户文件，管理管理员权限。</p>
+        </div>
+        <span>{loading ? "加载中" : `${users.length} 个用户`}</span>
+      </header>
+
+      {error ? (
+        <div className="admin-placeholder">
+          <Users size={30} aria-hidden />
+          <h2>用户加载失败</h2>
+          <p>{error}</p>
+        </div>
+      ) : loading ? (
+        <div className="admin-placeholder">
+          <Users size={30} aria-hidden />
+          <h2>加载中</h2>
+          <p>正在读取用户列表。</p>
+        </div>
+      ) : users.length ? (
+        <div className="admin-users-list">
+          {users.map((item) => {
+            const homepageUrl = item.homepageUrl || `/u/${encodeURIComponent(item.username)}/`;
+            return (
+              <div className="admin-users-row" key={item.id}>
+                <button type="button" className="admin-user-profile" onClick={() => onSelectUser(item.id)}>
+                  <span className="admin-user-avatar" aria-hidden>
+                    {item.avatarUrl ? (
+                      <img src={item.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                    ) : (
+                      (item.name || item.username).slice(0, 1).toUpperCase()
+                    )}
+                  </span>
+                  <span className="admin-user-main">
+                    <strong>{item.name || item.username}</strong>
+                    <span>{item.email || item.username}</span>
+                  </span>
+                </button>
+                <AdminUserRoleAction
+                  user={item}
+                  canPromote={canPromote}
+                  busy={promotingId === item.id}
+                  onPromote={onPromote}
+                  onRevokeAdmin={onRevokeAdmin}
+                />
+                <a className="admin-home-link" href={homepageUrl} target="_blank" rel="noreferrer" title="打开主页">
+                  主页
+                  <ExternalLink size={14} aria-hidden />
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="admin-placeholder">
+          <Users size={30} aria-hidden />
+          <h2>还没有用户</h2>
+          <p>用户首次通过 SSO 登录后，会出现在这里。</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AdminUserRoleAction({
+  user,
+  canPromote,
+  busy,
+  onPromote,
+  onRevokeAdmin,
+}: {
+  user: User;
+  canPromote: boolean;
+  busy: boolean;
+  onPromote: (user: User) => Promise<void>;
+  onRevokeAdmin: (user: User) => Promise<void>;
+}) {
+  if (user.role === "super_admin") {
+    return (
+      <span className="admin-role is-super">
+        <ShieldCheck size={13} aria-hidden />
+        超级管理员
+      </span>
+    );
+  }
+
+  if (user.role === "admin") {
+    if (!canPromote) {
+      return (
+        <span className="admin-role">
+          <ShieldCheck size={13} aria-hidden />
+          管理员
+        </span>
+      );
+    }
+    return (
+      <button type="button" className="admin-promote is-revoke" onClick={() => void onRevokeAdmin(user)} disabled={busy}>
+        {busy ? "取消中" : "取消管理员"}
+      </button>
+    );
+  }
+
+  if (!canPromote) return <span className="admin-role is-user">用户</span>;
+
+  return (
+    <button type="button" className="admin-promote" onClick={() => void onPromote(user)} disabled={busy}>
+      {busy ? "设置中" : "设为管理员"}
+    </button>
+  );
+}
+
+function AdminMissingUser({ loading, error }: { loading: boolean; error: string | null }) {
+  return (
+    <div className="admin-placeholder">
+      <UserIcon size={30} aria-hidden />
+      <h2>{loading ? "加载中" : "找不到用户"}</h2>
+      <p>{error || (loading ? "正在读取用户列表。" : "这个用户不存在，或已经无法访问。")}</p>
+    </div>
   );
 }
 

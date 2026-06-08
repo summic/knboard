@@ -7,6 +7,7 @@ export type User = {
   title?: string | null;
   avatarUrl?: string | null;
   provider?: string;
+  homepageUrl?: string;
 };
 export type AuthConfig = { kylithSso: { enabled: boolean; issuer: string | null } };
 
@@ -22,6 +23,10 @@ export type HomepageSettings = {
   style: HomepageTheme;
   titleFont: HomepageFont;
   showHomeLink: boolean;
+};
+export type HomepageSettingsResponse = {
+  settings: HomepageSettings;
+  homepageUrl: string;
 };
 export type FileEntry = {
   name: string;
@@ -187,9 +192,9 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ path, visibility }),
     }),
-  homepageSettings: () => req<{ settings: HomepageSettings }>("/api/homepage/settings"),
+  homepageSettings: () => req<HomepageSettingsResponse>("/api/homepage/settings"),
   updateHomepageSettings: (settings: HomepageSettings) =>
-    req<{ ok: true; settings: HomepageSettings }>("/api/homepage/settings", {
+    req<{ ok: true } & HomepageSettingsResponse>("/api/homepage/settings", {
       method: "PATCH",
       body: JSON.stringify(settings),
     }),

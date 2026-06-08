@@ -214,19 +214,19 @@ export async function createServerApp({
   });
 
   app.get("/api/admin/users", auth.requireAdmin, (_req, res) => {
-    res.json({ items: auth.listUsers() });
+    res.json({ items: auth.listUsers().map((user) => adminUserPayload({ auth, user, filesPublicUrl })) });
   });
 
   app.post("/api/admin/users/:id/admin", auth.requireSuperAdmin, (req, res) => {
     const user = auth.makeUserAdmin(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found." });
-    return res.json({ user });
+    return res.json({ user: adminUserPayload({ auth, user, filesPublicUrl }) });
   });
 
   app.delete("/api/admin/users/:id/admin", auth.requireSuperAdmin, (req, res) => {
     const user = auth.revokeUserAdmin(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found." });
-    return res.json({ user });
+    return res.json({ user: adminUserPayload({ auth, user, filesPublicUrl }) });
   });
 
   app.get("/api/admin/users/:id/files", auth.requireAdmin, asyncRoute(async (req, res) => {
@@ -351,7 +351,10 @@ export async function createServerApp({
   }));
 
   app.get("/api/homepage/settings", auth.requireUser, (req, res) => {
-    res.json({ settings: getHomepageSettings({ db: auth.db, user: req.user }) });
+    res.json({
+      settings: getHomepageSettings({ db: auth.db, user: req.user }),
+      homepageUrl: userHomepageUrl({ auth, user: req.user, filesPublicUrl }),
+    });
   });
 
   app.patch("/api/homepage/settings", auth.requireUser, express.json({ limit: "32kb" }), (req, res) => {
@@ -364,7 +367,7 @@ export async function createServerApp({
       titleFont: req.body?.titleFont,
       showHomeLink: req.body?.showHomeLink,
     });
-    res.json({ ok: true, settings });
+    res.json({ ok: true, settings, homepageUrl: userHomepageUrl({ auth, user: req.user, filesPublicUrl }) });
   });
 
   app.get("/api/files/search", auth.requireUser, asyncRoute(async (req, res) => {
@@ -528,6 +531,10 @@ export async function createServerApp({
   async function sendPublicHomepage(storageName, req, res) {
     const owner = auth.getUserByStorageName(storageName);
     if (!owner) return res.status(404).type("html").send(renderNotFoundDocument({ path: req.path }));
+    const root = path.resolve(auth.publicUploadsDir(storageName));
+    const indexFile = await findDirectoryIndex(root);
+    if (indexFile) return sendPublicFile(storageName, path.basename(indexFile), req, res);
+
     const settings = getHomepageSettings({ db: auth.db, user: owner });
     const listing = await listPublishedContent({
       filesDir: auth.userUploadsDir(owner),
@@ -694,6 +701,18 @@ function publicFileBasePath({ auth, user, filesPublicUrl }) {
   if (filesPublic?.wildcardSuffix) return publicUserBaseUrl({ filesPublic, storageName });
   const base = `/u/${encodeURIComponent(storageName)}`;
   return filesPublicUrl ? `${filesPublicUrl}${base}` : base;
+}
+
+function userHomepageUrl({ auth, user, filesPublicUrl }) {
+  const base = publicFileBasePath({ auth, user, filesPublicUrl });
+  return base.endsWith("/") ? base : `${base}/`;
+}
+
+function adminUserPayload({ auth, user, filesPublicUrl }) {
+  return {
+    ...user,
+    homepageUrl: userHomepageUrl({ auth, user, filesPublicUrl }),
+  };
 }
 
 function thumbnailOptions({ auth, user, publicUrl, filesPublicUrl, thumbnailBasePath }) {

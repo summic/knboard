@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type CliToken } from "./api";
+import { absoluteUrl } from "./url";
 
 export function Help() {
   return (
@@ -52,6 +53,15 @@ function UsageDoc() {
       </section>
 
       <section>
+        <h2>个人主页</h2>
+        <p>每个用户都有自己的个人主页。</p>
+        <HomepageAddress />
+        <p>没有上传根目录 <code>index.html</code> 或 <code>index.htm</code> 时，KN Box 会使用系统主页，展示你设置为公开的 Markdown 和网页。</p>
+        <p>系统主页可以设置主页名称、简介、标题字体和主题。标题字体包括宋体、Georgia、旧体、楷体；主题包括青绿、淡紫、米白、浅蓝、暖粉、中性。</p>
+        <p>如果想使用自定义主页，把 <code>index.html</code> 或 <code>index.htm</code> 上传到个人根目录即可。页面中的资源应使用站内路径引用。</p>
+      </section>
+
+      <section>
         <h2>什么时候需要 Token</h2>
         <p>
           只有 AI 助手或 CLI 无法打开浏览器登录时，才需要签发 CLI Token。
@@ -72,7 +82,42 @@ knbox auth login
 knbox upload ./site --json
 knbox open /site/index.html --json`}</code></pre>
       </section>
+
+      <section>
+        <h2>给 AI Agent 使用</h2>
+        <p>把下面两行复制发给 Codex 或 Claude：</p>
+        <pre><code>{`帮我安装 KN Box Skills
+npx skills add summic/knbox-skills`}</code></pre>
+        <p>完成授权后，可以直接对 AI 助手说：“把 xxx 文件上传到 KN Box。”它会上传文件，并把访问链接发给你。</p>
+      </section>
     </>
+  );
+}
+
+function HomepageAddress() {
+  const [homepageUrl, setHomepageUrl] = useState("");
+
+  useEffect(() => {
+    let canceled = false;
+    api
+      .homepageSettings()
+      .then((result) => {
+        if (!canceled) setHomepageUrl(absoluteUrl(result.homepageUrl));
+      })
+      .catch(() => {
+        if (!canceled) setHomepageUrl("");
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  if (!homepageUrl) return null;
+
+  return (
+    <p>
+      当前主页地址：<a href={homepageUrl} target="_blank" rel="noreferrer">{homepageUrl}</a>
+    </p>
   );
 }
 

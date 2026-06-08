@@ -22,6 +22,7 @@ const WEB_EXTENSIONS = new Set([".html", ".htm", ".css", ".js", ".mjs", ".cjs", 
 const TRASH_DIR = ".knbox-trash";
 const TRASH_ITEMS_DIR = "items";
 const TRASH_MANIFEST = "manifest.json";
+const DELETE_CONFIRM_TEXT = "confirm";
 const HTML_TITLE_ENTITY_RE = /&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi;
 
 export async function listUserFiles({
@@ -144,9 +145,8 @@ export async function deleteUserFiles({ filesDir, paths, confirmName }) {
   const requestedRels = (Array.isArray(paths) ? paths : []).map((value) => safeUserRelativePath(value));
   const rels = uniqueTopLevelPaths(requestedRels);
   if (!rels.length) return { deleted: 0 };
-  const expectedConfirmName = path.basename(requestedRels[0]);
-  if (String(confirmName || "") !== expectedConfirmName) {
-    const error = new Error("请输入文件或目录名称确认删除。");
+  if (String(confirmName || "") !== DELETE_CONFIRM_TEXT) {
+    const error = new Error("请输入 confirm 确认删除。");
     error.status = 400;
     throw error;
   }

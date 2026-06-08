@@ -112,6 +112,28 @@ data/
 - `tmp/uploads/` 用于上传过程中的临时文件
 - `users/<username>/.knbox-trash/` 保存该用户回收站文件和回收站 manifest
 
+## 个人主页
+
+每个用户都有自己的公开主页。生产环境的访问地址是：
+
+```text
+https://<username>.box.kn.run/
+```
+
+个人主页有两种模式：
+
+- 系统主页：没有上传根目录 `index.html` 或 `index.htm` 时，KN Box 自动生成主页。
+- 自定义主页：用户上传到个人根目录的 `index.html` 或 `index.htm` 会优先作为主页渲染。
+
+系统主页会展示用户设置为公开的 Markdown 和网页内容。用户可以在网页端“个人主页”的设置里调整：
+
+- 主页名称：主页标题，默认是 `Untitled`
+- 简介：可选的一句话介绍，留空则不显示
+- 标题字体：宋体、Georgia、旧体、楷体
+- 主题：青绿、淡紫、米白、浅蓝、暖粉、中性
+
+如果使用自定义主页，直接把 `index.html` 或 `index.htm` 上传到个人根目录即可。主页中引用的 JS、CSS、图片等资源也放在个人目录中，用相对路径或以 `/` 开头的站内路径引用；KN Box 不会改写用户上传的 JavaScript。用户页面会带独立的安全响应头，默认只能连接和加载自己站点内的资源，不能访问 KN Box 应用 API。
+
 ## KYLITH SSO
 
 KN Box 使用 KYLITH 作为唯一登录入口。应用自己的会话、CLI Token、文件归属和存储统计仍然保存在 KN Box 内。

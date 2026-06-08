@@ -23,7 +23,8 @@ import { Help } from "./Help";
 import { useUploads, UploadManager, type UploadSourceFile } from "./UploadManager";
 
 type AppView = "content" | "files" | "trash" | "help" | "admin";
-type Route = { view: AppView; section: FileSection; dir: string; adminUserId?: number | null };
+type AdminRoutePage = "home" | "users" | "user";
+type Route = { view: AppView; section: FileSection; dir: string; adminPage?: AdminRoutePage; adminUserId?: number | null };
 type DropHint = { active: boolean; count: number | null };
 type DataTransferItemWithEntry = DataTransferItem & {
   webkitGetAsEntry?: () => FileSystemEntry | null;
@@ -45,11 +46,13 @@ function parsePath(pathname: string): Route {
   if (parts[0] === "~help" || parts[0] === "~cli" || parts[0] === "~skills") return { view: "help", section: "all", dir: "" };
   if (parts[0] === "~admin") {
     const userId = parts[1] === "users" ? Number(parts[2]) : null;
+    const hasUserId = Number.isInteger(userId) && userId !== null && userId > 0;
     return {
       view: "admin",
       section: "all",
-      dir: Number.isInteger(userId) && userId && userId > 0 ? normalizeRouteDir(parts.slice(3).join("/")) : "",
-      adminUserId: Number.isInteger(userId) && userId && userId > 0 ? userId : null,
+      dir: hasUserId ? normalizeRouteDir(parts.slice(3).join("/")) : "",
+      adminPage: hasUserId ? "user" : parts[1] === "users" ? "users" : "home",
+      adminUserId: hasUserId ? userId : null,
     };
   }
   const section = SECTIONS[parts[0]] ?? "all";
@@ -376,6 +379,7 @@ export function App() {
   const goTrash = () => go("~trash");
   const goHelp = () => go("~help");
   const goAdmin = () => go("~admin");
+  const goAdminUsers = () => go("~admin/users");
   const goDir = (dir: string) => go(routePath(route.section, dir));
   const goAdminUserDir = (userId: number, dir = "") =>
     go(["~admin", "users", String(userId), normalizeRouteDir(dir)].filter(Boolean).join("/"));
@@ -651,9 +655,11 @@ export function App() {
           ) : route.view === "admin" ? (
             <AdminPage
               currentUser={user}
+              page={route.adminPage || "home"}
               selectedUserId={route.adminUserId}
               dir={route.dir}
               onHome={goAdmin}
+              onUsers={goAdminUsers}
               onSelectUser={(userId) => goAdminUserDir(userId)}
               onUserDirChange={goAdminUserDir}
               onPreviewOpen={() => {

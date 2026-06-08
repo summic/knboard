@@ -13,8 +13,14 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:6789",
-      "/u": "http://localhost:6789",
+      "^/api(?:/|$)": {
+        target: "http://localhost:6789",
+        changeOrigin: false,
+      },
+      "^/u(?:/|$)": {
+        target: "http://localhost:6789",
+        changeOrigin: false,
+      },
     },
   },
   build: {
